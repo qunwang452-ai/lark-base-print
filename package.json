@@ -1,0 +1,14 @@
+{
+  "name": "zhenggai-print",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lark-base-open/js-sdk": "^1.0.2",
+    "vite": "^8.2.2"
+  }
+}
