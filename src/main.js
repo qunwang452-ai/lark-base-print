@@ -33,7 +33,7 @@ function esc(s) {
   );
 }
 
-function render(d) {
+function renderOne(d) {
   const checkboxes = DEPTS.map((n) => `▢${n}`).join('&nbsp;&nbsp;');
 
   /* 第一页：单据本体。列宽用 colgroup 锁死，与模板 tblGrid 一致 */
@@ -115,7 +115,12 @@ function render(d) {
        </div>`
     : '';
 
-  host.innerHTML = page1 + page2;
+  return page1 + page2;
+}
+
+/* 多份单据依次排下去，份与份之间由 CSS 分页 */
+function renderAll(list) {
+  host.innerHTML = list.map(renderOne).join('');
 }
 
 function renderHint(msg, sub = '', diag = '') {
@@ -135,14 +140,14 @@ ${esc(dbg())}</pre>` : ''}
    用户更习惯②，但 SDK 默认只给①，所以必须回落。 */
 let lastDiag = '';
 
-async function resolveRecord(table, sel) {
+async function resolveRecords(table, sel) {
   const d = [`selection = ${JSON.stringify({
     tableId: sel.tableId, viewId: sel.viewId,
     recordId: sel.recordId, fieldId: sel.fieldId })}`];
 
   if (sel.recordId) {
     lastDiag = d.join('\n');
-    return { id: sel.recordId, from: '光标记录' };
+    return { ids: [sel.recordId], from: '光标记录' };
   }
 
   if (sel.viewId) {
@@ -156,8 +161,7 @@ async function resolveRecord(table, sel) {
         d.push(`勾选返回 = ${JSON.stringify(ids)}`);
         if (ids?.length) {
           lastDiag = d.join('\n');
-          return { id: ids[0],
-                   from: ids.length > 1 ? `勾选 ${ids.length} 条，打印第 1 条` : '勾选记录' };
+          return { ids, from: ids.length > 1 ? `勾选 ${ids.length} 条` : '勾选记录' };
         }
       }
     } catch (e) {
@@ -171,7 +175,7 @@ async function resolveRecord(table, sel) {
   return null;
 }
 
-/* 读取当前选中记录 */
+/* 读取选中的记录（可多条），逐份渲染 */
 async function load() {
   setStatus('读取中…');
   const sel = await bitable.base.getSelection();
@@ -182,22 +186,40 @@ async function load() {
   }
 
   const table = await bitable.base.getTableById(sel.tableId);
-  const picked = await resolveRecord(table, sel);
+  const picked = await resolveRecords(table, sel);
   if (!picked) {
-    renderHint('请在左侧表格中勾选或点选一条隐患记录。',
+    renderHint('请在左侧表格中勾选或点选隐患记录（可多选）。',
                '勾选后如果这里没自动刷新，点上方「重新读取」。', lastDiag);
     setStatus('未选中记录');
     return;
   }
-  sel.recordId = picked.id;
+
   const metas = await table.getFieldMetaList();
   const byName = new Map(metas.map((m) => [m.name, m]));
+  const missing = Object.values(FIELDS).filter((name) => !byName.has(name));
 
+  const list = [];
+  for (let i = 0; i < picked.ids.length; i++) {
+    if (picked.ids.length > 1) setStatus(`读取中 ${i + 1}/${picked.ids.length}…`);
+    list.push(await readOne(table, byName, picked.ids[i]));
+  }
+
+  renderAll(list);
+
+  const head = list.length > 1
+    ? `已生成 ${list.length} 份　·　${picked.from}`
+    : `已生成：${list[0].no || '(无编号)'}　·　${picked.from}`;
+  setStatus(missing.length ? `${head}；这些字段在当前表里找不到：${missing.join('、')}` : head,
+            missing.length > 0);
+}
+
+/* 读一条记录的全部字段 */
+async function readOne(table, byName, recordId) {
   const text = async (name) => {
     const m = byName.get(name);
     if (!m) return '';
     try {
-      return (await table.getCellString(m.id, sel.recordId)) || '';
+      return (await table.getCellString(m.id, recordId)) || '';
     } catch {
       return '';
     }
@@ -210,14 +232,14 @@ async function load() {
     if (!m) return [];
     try {
       const field = await table.getField(m.id);
-      const list = await field.getAttachmentUrls(sel.recordId);
-      return Array.isArray(list) ? list.filter(Boolean) : [];
+      const listed = await field.getAttachmentUrls(recordId);
+      return Array.isArray(listed) ? listed.filter(Boolean) : [];
     } catch {
       return [];
     }
   };
 
-  const data = {
+  return {
     no: await text(FIELDS.no),
     project: await text(FIELDS.project),
     unit: await text(FIELDS.unit),
@@ -227,18 +249,6 @@ async function load() {
     period: await text(FIELDS.period),
     photos: await urls(FIELDS.photos),
   };
-
-  const missing = Object.entries(FIELDS)
-    .filter(([, name]) => !byName.has(name))
-    .map(([, name]) => name);
-
-  render(data);
-  setStatus(
-    missing.length
-      ? `已生成（${picked.from}），但这些字段在当前表里找不到：${missing.join('、')}`
-      : `已生成：${data.no || '(无编号)'}　·　${picked.from}`,
-    missing.length > 0
-  );
 }
 
 document.getElementById('btn-print').onclick = () => window.print();
@@ -265,10 +275,10 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-08-31d';
+const BUILD = '2026-08-31e';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
-const OFFLINE_SAMPLE = {
+const OFFLINE_SAMPLE = [{
   no: 'SAMPLE-001',
   project: '（样例）某某建设工程项目',
   unit: '（样例）某某劳务分包有限公司',
@@ -277,7 +287,16 @@ const OFFLINE_SAMPLE = {
   owner: '（样例）张三',
   period: '2026-01-01',
   photos: [ph('样例照片 1'), ph('样例照片 2'), ph('样例照片 3')],
-};
+}, {
+  no: 'SAMPLE-002',
+  project: '（样例）某某建设工程项目',
+  unit: '（样例）另一家分包单位',
+  hazard: '（样例）第二条隐患，用于验证多份连续打印的分页。',
+  require: '（样例）按规范整改并复查。',
+  owner: '（样例）李四',
+  period: '2026-01-02',
+  photos: [],
+}];
 
 /* 占位图，仅离线调版式时使用 */
 function ph(label) {
@@ -291,7 +310,7 @@ function ph(label) {
 let ready = false;
 const offlineTimer = setTimeout(() => {
   if (!ready) {
-    render(OFFLINE_SAMPLE);
+    renderAll(OFFLINE_SAMPLE);
     setStatus('未连接到多维表格，当前显示样例数据（仅用于调版式）', true);
   }
 }, 2500);

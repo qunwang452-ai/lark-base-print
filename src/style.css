@@ -126,8 +126,10 @@ td.block { position: relative; }
   font-size: 12pt;
 }
 
-/* ---------- 第二页：附件照片 ---------- */
-.page-attach { page-break-before: always; }
+/* ---------- 分页 ----------
+   每个 .page 是一张 A4。相邻的 page 之间一律分页：
+   同一份单据的「附件页」如此，多份单据之间也如此。 */
+.page + .page { page-break-before: always; }
 
 .attach-title {
   margin: 0 0 8pt;
