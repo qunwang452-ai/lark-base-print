@@ -105,9 +105,9 @@ function renderOne(d) {
          <div class="attach-grid">
            ${d.photos
              .map(
-               (u, i) => `<figure>
-                  <img src="${esc(u)}" alt="隐患照片${i + 1}" />
-                  <figcaption>照片 ${i + 1}</figcaption>
+               (p, i) => `<figure>
+                  <img src="${esc(p.url || p)}" alt="隐患照片${i + 1}" />
+                  <figcaption>${esc(p.cap || `照片 ${i + 1}`)}</figcaption>
                 </figure>`
              )
              .join('')}
@@ -118,9 +118,40 @@ function renderOne(d) {
   return page1 + page2;
 }
 
-/* 多份单据依次排下去，份与份之间由 CSS 分页 */
+/* 多条隐患合并成「一张」整改单：
+   隐患和整改要求在同一栏内逐条编号列出，照片统一附在后面。
+   工程名称/责任单位/责任人/期限这类单值字段取第一条。 */
+function mergeRecords(list) {
+  if (list.length === 1) return list[0];
+
+  const numbered = (key) =>
+    list
+      .map((d, i) => (d[key] ? `${i + 1}. ${d[key]}` : ''))
+      .filter(Boolean)
+      .join('\n');
+
+  /* 照片标注来自第几条隐患，否则混在一起认不出对应关系 */
+  const photos = [];
+  list.forEach((d, i) => {
+    d.photos.forEach((u, j) => {
+      photos.push({ url: u, cap: `隐患 ${i + 1} · 照片 ${j + 1}` });
+    });
+  });
+
+  return {
+    no: list[0].no,
+    project: list[0].project,
+    unit: list[0].unit,
+    owner: list[0].owner,
+    period: list[0].period,
+    hazard: numbered('hazard'),
+    require: numbered('require'),
+    photos,
+  };
+}
+
 function renderAll(list) {
-  host.innerHTML = list.map(renderOne).join('');
+  host.innerHTML = renderOne(mergeRecords(list));
 }
 
 function renderHint(msg, sub = '', diag = '') {
@@ -206,11 +237,17 @@ async function load() {
 
   renderAll(list);
 
+  const uniq = (k) => [...new Set(list.map((d) => d[k]).filter(Boolean))];
+  const clash = ['unit', 'owner', 'period']
+    .filter((k) => uniq(k).length > 1)
+    .map((k) => ({ unit: '责任单位', owner: '整改责任人', period: '整改期限' }[k]));
+
   const head = list.length > 1
-    ? `已生成 ${list.length} 份　·　${picked.from}`
+    ? `已合并 ${list.length} 条隐患到一张单　·　${picked.from}`
+      + (clash.length ? `；${clash.join('、')}各条不一致，已取第 1 条` : '')
     : `已生成：${list[0].no || '(无编号)'}　·　${picked.from}`;
   setStatus(missing.length ? `${head}；这些字段在当前表里找不到：${missing.join('、')}` : head,
-            missing.length > 0);
+            missing.length > 0 || clash.length > 0);
 }
 
 /* 读一条记录的全部字段 */
@@ -275,7 +312,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-08-31e';
+const BUILD = '2026-08-31f';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = [{
