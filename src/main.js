@@ -5,12 +5,12 @@ import { bitable } from '@lark-base-open/js-sdk';
 const FIELDS = {
   no: '整改单编号',
   project: '所在项目',
-  unit: '责任分包单位',
+  unit: '责任单位',
   hazard: '隐患描述',
-  require: '整改要求',
-  owner: '整改责任人',
-  period: '整改期限',
-  photos: '隐患照片',
+  require: '整改方案',
+  owner: '责任人',
+  period: '要求完成整改时间',
+  photos: '整改前图片',
 };
 
 /* 工程名称字段为空时的兜底。留空即打印空白栏，由填表人手写。
@@ -312,7 +312,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-08-31f';
+const BUILD = '2026-08-31g';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = [{
