@@ -189,8 +189,26 @@ document.getElementById('btn-reload').onclick = () => load().catch(onErr);
 
 function onErr(e) {
   console.error(e);
-  setStatus(`读取失败：${e?.message || e}`, true);
+  const msg = e?.message || String(e);
+  setStatus(`读取失败：${msg}`, true);
+  /* 出错时必须在主体里显示，否则用户看到的是一片空白，无从判断 */
+  host.innerHTML = `<div class="empty-hint">
+      <p style="color:#e8642c;font-weight:600">插件读取数据失败</p>
+      <p style="font-family:monospace;font-size:12px;word-break:break-all">${esc(msg)}</p>
+      <p style="font-size:12px;color:#8f959e">${esc(dbg())}</p>
+    </div>`;
 }
+
+/* 诊断信息：出问题时能一眼看出卡在哪一步 */
+function dbg() {
+  return [
+    `SDK: ${typeof bitable === 'undefined' ? '未加载' : '已加载'}`,
+    `环境: ${window.self === window.top ? '独立窗口（不在 Base 里）' : 'iframe'}`,
+    `build: ${BUILD}`,
+  ].join(' ｜ ');
+}
+
+const BUILD = '2026-08-31b';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = {

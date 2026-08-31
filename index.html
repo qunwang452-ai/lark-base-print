@@ -12,7 +12,10 @@
     <button id="btn-reload">重新读取</button>
     <span id="status">初始化中…</span>
   </div>
-  <div id="sheet-host"></div>
+  <!-- 初始占位：若这段文字一直不消失，说明 JS 没跑起来（而不是数据读取失败） -->
+  <div id="sheet-host">
+    <div class="empty-hint">正在加载插件…</div>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
