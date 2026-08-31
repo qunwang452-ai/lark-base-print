@@ -118,10 +118,14 @@ function render(d) {
   host.innerHTML = page1 + page2;
 }
 
-function renderHint(msg, sub = '') {
+function renderHint(msg, sub = '', diag = '') {
   host.innerHTML = `<div class="empty-hint">
       <p>${esc(msg)}</p>
       ${sub ? `<p style="font-size:12px;color:#8f959e">${esc(sub)}</p>` : ''}
+      ${diag ? `<pre style="text-align:left;display:inline-block;margin-top:16px;padding:10px 14px;
+                 background:#f2f3f5;border-radius:6px;font-size:11px;line-height:1.7;
+                 white-space:pre-wrap;word-break:break-all;color:#4e5969">${esc(diag)}
+${esc(dbg())}</pre>` : ''}
     </div>`;
 }
 
@@ -129,22 +133,41 @@ function renderHint(msg, sub = '') {
    ① 点击单元格 → 光标激活，getSelection().recordId 有值
    ② 勾选行首复选框 → 光标不动，要从视图取 getSelectedRecordIdList()
    用户更习惯②，但 SDK 默认只给①，所以必须回落。 */
+let lastDiag = '';
+
 async function resolveRecord(table, sel) {
-  if (sel.recordId) return { id: sel.recordId, from: '光标记录' };
+  const d = [`selection = ${JSON.stringify({
+    tableId: sel.tableId, viewId: sel.viewId,
+    recordId: sel.recordId, fieldId: sel.fieldId })}`];
+
+  if (sel.recordId) {
+    lastDiag = d.join('\n');
+    return { id: sel.recordId, from: '光标记录' };
+  }
+
   if (sel.viewId) {
     try {
       const view = await table.getViewById(sel.viewId);
-      const ids = await view.getSelectedRecordIdList?.();
-      if (ids?.length) {
-        return {
-          id: ids[0],
-          from: ids.length > 1 ? `勾选 ${ids.length} 条，打印第 1 条` : '勾选记录',
-        };
+      try { d.push(`viewType = ${await view.getType()}`); } catch { d.push('viewType = 取不到'); }
+      const hasFn = typeof view.getSelectedRecordIdList === 'function';
+      d.push(`view.getSelectedRecordIdList 存在 = ${hasFn}`);
+      if (hasFn) {
+        const ids = await view.getSelectedRecordIdList();
+        d.push(`勾选返回 = ${JSON.stringify(ids)}`);
+        if (ids?.length) {
+          lastDiag = d.join('\n');
+          return { id: ids[0],
+                   from: ids.length > 1 ? `勾选 ${ids.length} 条，打印第 1 条` : '勾选记录' };
+        }
       }
-    } catch {
-      /* 非表格视图没有这个方法，忽略 */
+    } catch (e) {
+      d.push(`异常 = ${e?.message || e}`);
     }
+  } else {
+    d.push('selection 里没有 viewId');
   }
+
+  lastDiag = d.join('\n');
   return null;
 }
 
@@ -162,7 +185,7 @@ async function load() {
   const picked = await resolveRecord(table, sel);
   if (!picked) {
     renderHint('请在左侧表格中勾选或点选一条隐患记录。',
-               '勾选复选框后如果这里没有自动刷新，点上方「重新读取」。');
+               '勾选后如果这里没自动刷新，点上方「重新读取」。', lastDiag);
     setStatus('未选中记录');
     return;
   }
@@ -242,7 +265,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-08-31c';
+const BUILD = '2026-08-31d';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = {
