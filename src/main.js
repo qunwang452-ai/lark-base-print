@@ -118,21 +118,55 @@ function render(d) {
   host.innerHTML = page1 + page2;
 }
 
-function renderHint(msg) {
-  host.innerHTML = `<div class="empty-hint">${esc(msg)}</div>`;
+function renderHint(msg, sub = '') {
+  host.innerHTML = `<div class="empty-hint">
+      <p>${esc(msg)}</p>
+      ${sub ? `<p style="font-size:12px;color:#8f959e">${esc(sub)}</p>` : ''}
+    </div>`;
+}
+
+/* Base 里「选中」有两种，SDK 的取法不一样，两种都要支持：
+   ① 点击单元格 → 光标激活，getSelection().recordId 有值
+   ② 勾选行首复选框 → 光标不动，要从视图取 getSelectedRecordIdList()
+   用户更习惯②，但 SDK 默认只给①，所以必须回落。 */
+async function resolveRecord(table, sel) {
+  if (sel.recordId) return { id: sel.recordId, from: '光标记录' };
+  if (sel.viewId) {
+    try {
+      const view = await table.getViewById(sel.viewId);
+      const ids = await view.getSelectedRecordIdList?.();
+      if (ids?.length) {
+        return {
+          id: ids[0],
+          from: ids.length > 1 ? `勾选 ${ids.length} 条，打印第 1 条` : '勾选记录',
+        };
+      }
+    } catch {
+      /* 非表格视图没有这个方法，忽略 */
+    }
+  }
+  return null;
 }
 
 /* 读取当前选中记录 */
 async function load() {
   setStatus('读取中…');
   const sel = await bitable.base.getSelection();
-  if (!sel?.tableId || !sel?.recordId) {
-    renderHint('请在左侧表格中点选一条隐患记录。');
-    setStatus('未选中记录');
+  if (!sel?.tableId) {
+    renderHint('未识别到数据表，请在左侧打开一张表。');
+    setStatus('无数据表');
     return;
   }
 
   const table = await bitable.base.getTableById(sel.tableId);
+  const picked = await resolveRecord(table, sel);
+  if (!picked) {
+    renderHint('请在左侧表格中勾选或点选一条隐患记录。',
+               '勾选复选框后如果这里没有自动刷新，点上方「重新读取」。');
+    setStatus('未选中记录');
+    return;
+  }
+  sel.recordId = picked.id;
   const metas = await table.getFieldMetaList();
   const byName = new Map(metas.map((m) => [m.name, m]));
 
@@ -178,8 +212,8 @@ async function load() {
   render(data);
   setStatus(
     missing.length
-      ? `已生成，但这些字段在当前表里找不到：${missing.join('、')}`
-      : `已生成：${data.no || '(无编号)'}`,
+      ? `已生成（${picked.from}），但这些字段在当前表里找不到：${missing.join('、')}`
+      : `已生成：${data.no || '(无编号)'}　·　${picked.from}`,
     missing.length > 0
   );
 }
@@ -208,7 +242,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-08-31b';
+const BUILD = '2026-08-31c';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = {
