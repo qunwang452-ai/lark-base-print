@@ -19,6 +19,7 @@ body {
   top: 0;
   z-index: 10;
   display: flex;
+  flex-wrap: wrap;   /* 侧边栏窄时让提示换行，不要把状态文字挤扁 */
   gap: 8px;
   align-items: center;
   padding: 10px 12px;
@@ -42,6 +43,15 @@ body {
 .toolbar button#btn-reload { background: #fff; color: #0f7b8a; }
 #status { color: #646a73; }
 #status.err { color: #e8642c; }
+
+/* 打印设置提示：屏幕上常驻，打印时随工具条一起隐藏（.no-print） */
+.print-tip {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #fff7e6;
+  color: #a8621b;
+  font-size: 12px;
+}
 
 /* ---------- 页 ---------- */
 /* 左右边距 = (210 - 158.9) / 2 = 25.55mm，保证表格实际宽度与原件一致 */
