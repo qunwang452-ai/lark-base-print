@@ -73,6 +73,36 @@ npm run dev &
 pdfinfo out.pdf | grep Pages
 ```
 
+## 发布
+
+线上：<https://qunwang452-ai.github.io/lark-base-print/>
+
+**Pages 的源是 `gh-pages` 分支**（`build_type: legacy`），不是 GitHub Actions。
+构建产物平铺在该分支根目录，外加一个 `.nojekyll`。`dist/` 被 `.gitignore` 排除，不进 `main`。
+
+```bash
+# 1. 改 src/main.js 顶部的 BUILD 号（诊断信息里会显示，用来确认线上跑的是哪一版）
+# 2. 构建并提交源码
+npm run build
+git add -A && git commit -m "feat: ..." && git push origin main
+
+# 3. 把 dist/ 推到 gh-pages（assets 文件名带 hash，必须清旧的，不能只覆盖）
+git worktree add /tmp/gh-pages gh-pages
+cd /tmp/gh-pages && git rm -rq index.html assets && rm -rf assets index.html
+cp -R <repo>/dist/. .          # .nojekyll 已在分支里，别删
+git add -A && git commit -m "deploy: build <BUILD号> <说明>" && git push origin gh-pages
+cd - && git worktree remove /tmp/gh-pages --force
+
+# 4. 验证（Pages 构建约需 1 分钟）
+gh api repos/qunwang452-ai/lark-base-print/pages/builds/latest --jq '.status + " " + .commit'
+curl -s https://qunwang452-ai.github.io/lark-base-print/ | grep -o 'assets/index-[^"]*css'
+```
+
+🔴 `.github-pending/deploy.yml` 是**另一条没启用的路**（Actions + `upload-pages-artifact`）。
+它和现在的 legacy 模式互斥：要用它得先把 Pages 的源从 `gh-pages` 分支改成 GitHub Actions，
+并把文件挪进 `.github/workflows/`（该目录还被 `.gitignore` 排除着）。**没想清楚别切**——
+切了之后上面这套手工流程就失效了。
+
 ## 改成你自己的版式
 
 - **字段映射**：`src/main.js` 顶部的 `FIELDS`，左边是单据上的位置，右边是表里的字段名
