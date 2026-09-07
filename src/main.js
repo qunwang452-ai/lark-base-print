@@ -22,6 +22,29 @@ const FIELDS = {
   aiHint: 'AI初判结果',
 };
 
+/* ── 整改单编号 ──────────────────────────────────────────────
+   格式 `ZG-<项目编号>-<年><3位流水>`，例 `ZG-07-26001`（09-07 王群定）。
+
+   | 段 | 取值 | 为什么 |
+   |---|---|---|
+   | ZG | 整改单；考核单是 KH | 🔴 王群定：考核单与处罚单是同一种单据，一律称考核单 |
+   | 项目编号 | 01–10 | 项目信息表里现成的，不另造英文缩写 |
+   | 年 | 26 | 跨年重置流水，否则三年后变五位 |
+   | 流水 | 001–999 | **按项目 ＋ 年度独立计数**，不是全库连续 |
+
+   🔴 与 `D06` 原先记的「整改单编号全局连续」不同 —— 09-07 改为按项目独立，
+   因为 10 个项目各自对分包开单、各自归档，全局连续时项目内会跳号没法查。
+
+   🔴 **何时生成**：点「生成编号」按钮时，不是隐患录入时 ——
+   不是每条隐患都开单（II 级以上才开），录入即编号会大量占空号。
+   已有编号的记录**不会重新生成**（幂等），重复打印同一张单编号不变。 */
+const ORDER = {
+  prefix: 'ZG',
+  projTable: '项目信息表',
+  projCode: '项目编号',
+  width: 3,
+};
+
 /* 清单表里要读的字段，和单据上「违反条款」那行的出处表述。
    🔴 出处 = 中冶南方政〔2026〕131 号《中冶南方安全检查隐患考核实施细则》，
    Base 的「隐患考核标准清单」345 条即出自该文（见 D08 一）。
@@ -45,6 +68,11 @@ const DEPTS = ['工程部', '技术质量部', '安监部', '经营部', '物资
 
 const host = document.getElementById('sheet-host');
 const statusEl = document.getElementById('status');
+
+/* 上次读到的表与选中记录，「生成整改单编号」按钮要用。
+   🔴 必须在 load() 之前声明 —— let 有暂时性死区，声明写在文件末尾的话
+   load() 里赋值会抛 ReferenceError，而且是运行时才炸，构建查不出来。 */
+let ctx = null;
 
 function setStatus(text, isErr = false) {
   statusEl.textContent = text;
@@ -130,7 +158,7 @@ function renderOne(d) {
                 <span class="block-body">${esc(d.hazard)}</span>
                 ${legalHtml(d)}
               </div>
-              <div class="sign-row"><span>签发人签字：</span><span>日&emsp;期：</span></div>
+              <div class="sign-row"><span>签发人：</span><span>日&emsp;期：</span></div>
             </div>
           </td>
         </tr>
@@ -176,13 +204,15 @@ function renderOne(d) {
   return page1 + page2;
 }
 
-/* 合并上限：超过这个条数就提示拆单。
-   🔴 依据是版面实测，不是拍脑袋（09-07 用 headless Chrome 打 PDF 逐档量的，D03 有记）：
-   压缩 r6/r7 行高后，「存在安全隐患」格一页可容 **约 320 字**
-   （300 字余量 4.9mm ✅／350 字 −1.6mm ❌）。
-   按每条「描述 30 字 ＋ 条款 60 字」估：3 条约 270 字安全，4 条约 360 字就会撞线。
-   业务上也站得住：一张单列十几条隐患，分包没法逐条整改闭环。 */
-const MERGE_LIMIT = 3;
+/* 「存在安全隐患」格一页能装多少字 —— 🔴 headless Chrome 打 PDF 逐档实测的边界，
+   不是按行高估算的（估算会高估，09-07 一度报成 320 字，实测只有 260）：
+     250 字 → 2 页 ✅ ／ 280 字 → 3 页 ❌（第一页空白、表被推走）
+   注意这个值与 r3 行高设多大无关：总容量由页面总可用高度决定，
+   r3=68.3 和 r3=82 实测都是 250 ✅／270~280 ❌，加大 r3 只是把余量从页底挪进格内。
+
+   按内容字数判断而不是按条数 —— 有条款的隐患约 130 字/条、没条款的约 40 字/条，
+   差三倍，只数条数会误判。 */
+const CONTENT_LIMIT = 250;
 
 /* 多条隐患合并成「一张」整改单：
    隐患和整改要求在同一栏内逐条编号列出，照片统一附在后面。
@@ -212,10 +242,14 @@ function mergeRecords(list) {
     period: list[0].period,
     hazard: numbered('hazard'),
     require: numbered('require'),
-    /* 条款按隐患编号对应列出；多条隐患引同一款时去重，否则整改单上会重复刷屏 */
-    clause: [...new Set(list.map((d) => d.clause).filter(Boolean))]
-      .map((c, i) => (list.length > 1 ? `${i + 1}. ${c}` : c))
-      .join('\n'),
+    /* 多条隐患引同一条款时只印一遍（09-07 王群：「引用的法条一样就不用重复录入」）。
+       🔴 编号看的是**去重之后**还剩几条，不是原始隐患条数：
+       3 条隐患都违反第 154 条 → 去重后只剩 1 条 → 直接印，不带「1.」这种孤零零的编号。 */
+    clause: (() => {
+      const uniq = [...new Set(list.map((d) => d.clause).filter(Boolean))];
+      if (uniq.length <= 1) return uniq[0] || '';
+      return uniq.map((c, i) => `${i + 1}. ${c}`).join('\n');
+    })(),
     photos,
   };
 }
@@ -307,18 +341,31 @@ async function load() {
 
   renderAll(list);
 
+  /* 记住这次的上下文，「生成整改单编号」按钮要用 */
+  ctx = { table, byName, ids: picked.ids };
+  const lackNo = list.filter((d) => !d.no).length;
+  const btn = document.getElementById('btn-no');
+  btn.hidden = lackNo === 0;
+  btn.textContent = lackNo > 1 ? `生成整改单编号（${lackNo} 条）` : '生成整改单编号';
+
   const uniq = (k) => [...new Set(list.map((d) => d[k]).filter(Boolean))];
   const clash = ['unit', 'owner', 'period']
     .filter((k) => uniq(k).length > 1)
     .map((k) => ({ unit: '责任单位', owner: '整改责任人', period: '整改期限' }[k]));
 
-  const over = list.length > MERGE_LIMIT;
+  /* 按合并后「存在安全隐患」格的实际字数判断会不会挤爆分页 */
+  const merged = mergeRecords(list);
+  const chars = (merged.hazard || '').length + (merged.clause || '').length;
+  const over = chars > CONTENT_LIMIT;
   const head = list.length > 1
     ? `已合并 ${list.length} 条隐患到一张单　·　${picked.from}`
       + (clash.length ? `；${clash.join('、')}各条不一致，已取第 1 条` : '')
-      + (over ? `；🔴 超过 ${MERGE_LIMIT} 条，版面可能挤爆分页，建议拆成多张单` : '')
     : `已生成：${list[0].no || '(无编号)'}　·　${picked.from}`;
-  setStatus(missing.length ? `${head}；这些字段在当前表里找不到：${missing.join('、')}` : head,
+  const warn = over
+    ? `${head}；🔴 隐患栏共 ${chars} 字，超过一页可容的 ${CONTENT_LIMIT} 字，`
+      + `打印会多出一张空白页 —— 建议拆成多张单`
+    : head;
+  setStatus(missing.length ? `${warn}；这些字段在当前表里找不到：${missing.join('、')}` : warn,
             missing.length > 0 || clash.length > 0 || over);
 }
 
@@ -435,6 +482,65 @@ function clauseFromAI(ai) {
   return '';
 }
 
+/* ── 生成整改单编号 ──────────────────────────────────────── */
+
+/* 顺着「所在项目」link 读出项目编号（01–10） */
+async function readProjectCode(table, byName, recordId) {
+  const meta = byName.get(FIELDS.project);
+  if (!meta) return '';
+  try {
+    const cell = await table.getCellValue(meta.id, recordId);
+    if (!Array.isArray(cell) || !cell.length) return '';
+    const tid = cell[0]?.tableId || cell[0]?.table_id;
+    const rid = cell[0]?.recordIds?.[0] || cell[0]?.record_ids?.[0] || cell[0]?.recordId;
+    if (!tid || !rid) return '';
+    const pt = await bitable.base.getTableById(tid);
+    const pm = new Map((await pt.getFieldMetaList()).map((m) => [m.name, m]));
+    const codeId = pm.get(ORDER.projCode)?.id;
+    return codeId ? (await pt.getCellString(codeId, rid) || '').trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+/* 算该项目该年度的下一个流水号。
+   🔴 扫全表的「整改单编号」列取最大值，而不是数记录条数 ——
+   数条数在删过记录后会重号，取最大值不会。 */
+async function nextOrderNo(table, byName, projCode) {
+  const yy = String(new Date().getFullYear()).slice(2);
+  const prefix = `${ORDER.prefix}-${projCode}-${yy}`;
+  const noMeta = byName.get(FIELDS.no);
+  if (!noMeta) throw new Error(`表里没有「${FIELDS.no}」字段`);
+
+  const ids = await table.getRecordIdList();
+  let max = 0;
+  for (const rid of ids) {
+    let v = '';
+    try { v = (await table.getCellString(noMeta.id, rid)) || ''; } catch { continue; }
+    if (!v.startsWith(prefix)) continue;
+    const n = parseInt(v.slice(prefix.length), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return prefix + String(max + 1).padStart(ORDER.width, '0');
+}
+
+/* 给当前选中的记录生成并写回编号。已有编号的跳过（幂等）。 */
+async function assignOrderNos(table, byName, recordIds) {
+  const noMeta = byName.get(FIELDS.no);
+  if (!noMeta) throw new Error(`表里没有「${FIELDS.no}」字段`);
+  const done = [];
+  for (const rid of recordIds) {
+    const cur = (await table.getCellString(noMeta.id, rid) || '').trim();
+    if (cur) { done.push({ rid, no: cur, skipped: true }); continue; }
+    const code = await readProjectCode(table, byName, rid);
+    if (!code) throw new Error('这条记录没有「所在项目」，或项目信息表里查不到项目编号');
+    const no = await nextOrderNo(table, byName, code);
+    await table.setCellValue(noMeta.id, rid, no);
+    done.push({ rid, no, skipped: false });
+  }
+  return done;
+}
+
 /* 单据上的呈现：条目内容在前，条款号在后（09-07 王群定） */
 function fmtClause(content, no) {
   const tail = no ? `——${STD.source}第 ${no} 条` : '';
@@ -444,6 +550,30 @@ function fmtClause(content, no) {
 
 document.getElementById('btn-print').onclick = () => window.print();
 document.getElementById('btn-reload').onclick = () => load().catch(onErr);
+
+/* 🔴 全插件唯一一处写 Base 的地方，且只在用户点这个按钮时执行。
+   打印不写数据 —— 免得预览一下就把编号占掉。 */
+document.getElementById('btn-no').onclick = async () => {
+  if (!ctx) return;
+  const btn = document.getElementById('btn-no');
+  btn.disabled = true;
+  setStatus('生成编号中…');
+  try {
+    const done = await assignOrderNos(ctx.table, ctx.byName, ctx.ids);
+    const made = done.filter((d) => !d.skipped).map((d) => d.no);
+    const kept = done.filter((d) => d.skipped).length;
+    setStatus(
+      (made.length ? `已生成：${made.join('、')}` : '没有需要生成的')
+      + (kept ? `；${kept} 条本来就有编号，未改动` : '')
+      + '　·　正在刷新…'
+    );
+    await load();
+  } catch (e) {
+    onErr(e);
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 function onErr(e) {
   console.error(e);
@@ -466,11 +596,11 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-07d';
+const BUILD = '2026-09-07h';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = [{
-  no: 'SAMPLE-001',
+  no: 'ZG-07-26001',
   project: '（样例）某某建设工程项目',
   unit: '（样例）某某劳务分包有限公司',
   hazard: '（样例）××部位安全防护缺失，不符合规范要求。',
@@ -482,7 +612,7 @@ const OFFLINE_SAMPLE = [{
         + '——《中冶南方安全检查隐患考核实施细则》（中冶南方政〔2026〕131号）第 232 条',
   photos: [ph('样例照片 1'), ph('样例照片 2'), ph('样例照片 3')],
 }, {
-  no: 'SAMPLE-002',
+  no: 'ZG-07-26002',
   project: '（样例）某某建设工程项目',
   unit: '（样例）另一家分包单位',
   hazard: '（样例）第二条隐患，用于验证多份连续打印的分页。',
