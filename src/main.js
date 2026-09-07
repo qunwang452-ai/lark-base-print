@@ -1,17 +1,39 @@
 import { bitable } from '@lark-base-open/js-sdk';
 
 /* 字段映射：左边是单据上的位置，右边是「隐患整改台账」里的字段名。
-   换表或改字段名时只动这里。 */
+   换表或改字段名时只动这里。
+   🔴 字段名写错不会报错，只会打出空白栏 —— 09-07 就是这么白开了一批单：
+   「整改方案」「责任人」台账里根本没有，真名是「整改措施」「负责人」。
+   改这里之前先 `lark-cli base +field-list` 对一遍真实字段名。 */
 const FIELDS = {
   no: '整改单编号',
   project: '所在项目',
   unit: '责任单位',
   hazard: '隐患描述',
-  require: '整改方案',
-  owner: '责任人',
+  require: '整改措施',
+  owner: '负责人',
   period: '要求完成整改时间',
   photos: '整改前图片',
+  /* 违反条款的来源：「对照标准条目」这个 link 字段。
+     🔴 台账里不加 lookup 列 —— 插件自己顺着 link 跨表去读清单表，
+     Base 结构一个字不动。取两样：清单序号（印「第 N 条」）＋ 违反条款（印引用的规范）。 */
+  standard: '对照标准条目',
 };
+
+/* 清单表里要读的两个字段，和单据上「违反条款」那行的出处表述。
+   🔴 出处 = 中冶南方政〔2026〕131 号《中冶南方安全检查隐患考核实施细则》，
+   Base 的「隐患考核标准清单」345 条即出自该文（见 D08 一）。
+   改这里之前先回原件核对文号与附件号——这行要印在正式单据上。 */
+const STD = {
+  table: '隐患考核标准清单',
+  no: '清单序号',
+  clause: '违反条款',
+  source: '《中冶南方安全检查隐患考核实施细则》（中冶南方政〔2026〕131号）',
+};
+
+/* 「要求完成整改时间」常空（18 条里只有 3 条填了），
+   而「建议整改期限」是按细则自动算的（I级次日 / II级7天），16 条有值 —— 空了就用它兜底。 */
+const PERIOD_FALLBACK = '建议整改期限';
 
 /* 工程名称字段为空时的兜底。留空即打印空白栏，由填表人手写。
    如需固定某个工程名，在这里填。 */
@@ -31,6 +53,42 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])
   );
+}
+
+/* 违反条款。没选「对照标准条目」的隐患本栏为空，整段不出——
+   空着一行「违反条款：」比不写更难看。 */
+function legalHtml(d) {
+  if (!d.clause) return '';
+  return `<div class="legal-box">
+      <span class="legal-head">违反条款：</span>
+      <span class="legal-body">${esc(d.clause)}</span>
+    </div>`;
+}
+
+/* 附件照片页：一行两张的表格，格线就是照片边框 */
+function attachPage(d) {
+  const cells = d.photos.map(
+    (p, i) => `<td class="ph">
+         <img src="${esc(p.url || p)}" alt="隐患照片${i + 1}" />
+         <div class="ph-cap">${esc(p.cap || `照片 ${i + 1}`)}</div>
+       </td>`
+  );
+  if (cells.length % 2) cells.push('<td class="ph ph-empty"></td>');
+
+  const rows = [];
+  for (let i = 0; i < cells.length; i += 2) {
+    rows.push(`<tr>${cells[i]}${cells[i + 1]}</tr>`);
+  }
+
+  return `<div class="page">
+      <table class="form attach">
+        <colgroup><col style="width:79.45mm" /><col style="width:79.45mm" /></colgroup>
+        <tr><td class="attach-head" colspan="2">
+          附件：隐患照片${d.no ? `（编号 ${esc(d.no)}）` : ''}
+        </td></tr>
+        ${rows.join('')}
+      </table>
+    </div>`;
 }
 
 function renderOne(d) {
@@ -66,6 +124,7 @@ function renderOne(d) {
           <td class="block" colspan="6">
             <span class="block-head">存在安全隐患：</span>
             <span class="block-body">${esc(d.hazard)}</span>
+            ${legalHtml(d)}
             <div class="sign-row"><span>签发人签字：</span><span>日&emsp;期：</span></div>
           </td>
         </tr>
@@ -98,22 +157,10 @@ function renderOne(d) {
       </table>
     </div>`;
 
-  /* 第二页：附件照片，一行两张。没有照片就不出这一页 */
-  const page2 = d.photos.length
-    ? `<div class="page page-attach">
-         <p class="attach-title">附件：隐患照片（编号 ${esc(d.no)}）</p>
-         <div class="attach-grid">
-           ${d.photos
-             .map(
-               (p, i) => `<figure>
-                  <img src="${esc(p.url || p)}" alt="隐患照片${i + 1}" />
-                  <figcaption>${esc(p.cap || `照片 ${i + 1}`)}</figcaption>
-                </figure>`
-             )
-             .join('')}
-         </div>
-       </div>`
-    : '';
+  /* 第二页：附件照片。做成真正的表格 —— 与单据表同宽、同边框，
+     照片和图注共处一格，格线即照片边框，不再是「表格一套线、图片另一套线」。
+     一行两张，行内不足两张时补一个空格子，保证右边框闭合。 */
+  const page2 = d.photos.length ? attachPage(d) : '';
 
   return page1 + page2;
 }
@@ -146,6 +193,10 @@ function mergeRecords(list) {
     period: list[0].period,
     hazard: numbered('hazard'),
     require: numbered('require'),
+    /* 条款按隐患编号对应列出；多条隐患引同一款时去重，否则整改单上会重复刷屏 */
+    clause: [...new Set(list.map((d) => d.clause).filter(Boolean))]
+      .map((c, i) => (list.length > 1 ? `${i + 1}. ${c}` : c))
+      .join('\n'),
     photos,
   };
 }
@@ -283,9 +334,43 @@ async function readOne(table, byName, recordId) {
     hazard: await text(FIELDS.hazard),
     require: await text(FIELDS.require),
     owner: await text(FIELDS.owner),
-    period: await text(FIELDS.period),
+    /* 要求完成整改时间常空，回落到按细则自动算的建议整改期限 */
+    period: (await text(FIELDS.period)) || (await text(PERIOD_FALLBACK)),
+    clause: await readClause(table, byName, recordId),
     photos: await urls(FIELDS.photos),
   };
+}
+
+/* 顺着「对照标准条目」link 跨表读清单，拼出「第 N 条 · 违反的规范」。
+   🔴 不读 AI初判结果 里的序号：那是 AI 的建议，安全员改选了条目它不会跟着变，
+   照它印会印出跟定级不一致的条款。以人工选定的 link 为准。 */
+async function readClause(table, byName, recordId) {
+  const meta = byName.get(FIELDS.standard);
+  if (!meta) return '';
+  try {
+    const cell = await table.getCellValue(meta.id, recordId);
+    if (!Array.isArray(cell) || !cell.length) return '';
+
+    const linkTableId = cell[0]?.tableId || cell[0]?.table_id;
+    if (!linkTableId) return '';
+    const stdTable = await bitable.base.getTableById(linkTableId);
+    const stdMeta = new Map((await stdTable.getFieldMetaList()).map((m) => [m.name, m]));
+    const noId = stdMeta.get(STD.no)?.id;
+    const clauseId = stdMeta.get(STD.clause)?.id;
+
+    const parts = [];
+    for (const link of cell) {
+      const rid = link?.recordIds?.[0] || link?.record_ids?.[0] || link?.recordId;
+      if (!rid) continue;
+      const no = noId ? await stdTable.getCellString(noId, rid) : '';
+      const cl = clauseId ? await stdTable.getCellString(clauseId, rid) : '';
+      const head = no ? `${STD.source}第 ${no} 条` : STD.source;
+      parts.push(cl ? `${head}\n${cl}` : head);
+    }
+    return parts.join('\n');
+  } catch {
+    return '';
+  }
 }
 
 document.getElementById('btn-print').onclick = () => window.print();
@@ -312,7 +397,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-03a';
+const BUILD = '2026-09-07a';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = [{
@@ -323,6 +408,9 @@ const OFFLINE_SAMPLE = [{
   require: '（样例）限期整改到位并经验收；整改期间设置警戒区。',
   owner: '（样例）张三',
   period: '2026-01-01',
+  clause: '《中冶南方安全检查隐患考核实施细则》（中冶南方政〔2026〕131号）第 154 条\n'
+        + '1、《建筑施工高处作业安全技术规范》（JGJ 80-2016）4.1.2。\n'
+        + '2、《安全带》（GB 6095-2021）5.1。',
   photos: [ph('样例照片 1'), ph('样例照片 2'), ph('样例照片 3')],
 }, {
   no: 'SAMPLE-002',

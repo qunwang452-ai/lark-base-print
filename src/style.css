@@ -125,6 +125,19 @@ tr.r7 td { height: 37.1mm; }
 .block-head { display: block; }
 .block-body { display: block; margin-top: 2pt; white-space: pre-wrap; }
 
+/* 违反条款：跟在隐患描述下面，缩进并压一档字号，
+   视觉上从属于隐患、不与正文抢位；上面一条细线把两段隔开 */
+.legal-box {
+  margin-top: 5pt;
+  padding-top: 4pt;
+  border-top: 1px dashed #000;
+  font-size: 10.5pt;
+  line-height: 1.5;
+}
+
+.legal-head { font-weight: 700; }
+.legal-body { white-space: pre-wrap; }
+
 /* 签字行贴在格子底部 */
 td.block { position: relative; }
 .sign-row {
@@ -141,32 +154,42 @@ td.block { position: relative; }
    同一份单据的「附件页」如此，多份单据之间也如此。 */
 .page + .page { page-break-before: always; }
 
-.attach-title {
-  margin: 0 0 8pt;
+/* ---------- 附件照片页 ----------
+   做成表格：与单据表同宽（158.9mm）、同边框（1px 实线黑），
+   照片和图注同处一格 —— 格线即照片边框，不再是两套线各画各的。
+   照片高度从 95mm 降到 62mm：原尺寸一页只塞得下 4 张，
+   现在一页 6 张，且不会把图注挤到下一页。 */
+td.attach-head {
+  height: auto;
   font-size: 12pt;
+  font-weight: 700;
+  text-align: center;
+  padding: 4pt;
 }
 
-.attach-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);   /* 一行两张 */
-  gap: 6mm;
+td.ph {
+  padding: 3pt;
+  text-align: center;
+  vertical-align: top;
 }
 
-.attach-grid figure { margin: 0; }
-
-.attach-grid img {
+td.ph img {
+  display: block;
   width: 100%;
-  height: 95mm;
+  height: 62mm;
   object-fit: contain;
-  border: 1px solid #000;
   background: #fff;
 }
 
-.attach-grid figcaption {
+.ph-cap {
   margin-top: 2pt;
   font-size: 10.5pt;
   text-align: center;
+  line-height: 1.4;
 }
+
+/* 奇数张时补的空格子：不留内容，只把右边框闭合 */
+td.ph-empty { height: 62mm; }
 
 .empty-hint {
   padding: 40px;
@@ -191,7 +214,8 @@ td.block { position: relative; }
     padding: 0;
     box-shadow: none;
   }
-  /* 单据表格不允许被拆到两页 */
+  /* 单据表格不允许被拆到两页；附件表照片多时按行断，一行图不许劈开 */
   table.form { page-break-inside: avoid; }
-  .attach-grid figure { page-break-inside: avoid; }
+  table.attach { page-break-inside: auto; }
+  table.attach tr { page-break-inside: avoid; }
 }
