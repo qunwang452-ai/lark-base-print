@@ -2,6 +2,7 @@
    所有尺寸均取自模板 XML：
    表格总宽 158.9mm，6 列 31.2/28.7/27.0/26.5/19.2/26.3mm
    行高 14.1/11.6/9.9/68.3/19.5/12.9/29.8/37.1mm（atLeast，内容多了会撑高）
+   🔴 r6/r7 已于 09-07 调整为 25.0/20.0，理由见下方行高那节
    标签 10.5pt、内容 12pt，宋体 */
 
 * { box-sizing: border-box; }
@@ -112,15 +113,26 @@ td.val-sm { font-size: 10.5pt; vertical-align: middle; }
 /* 大段落格：内容靠上 */
 td.block { vertical-align: top; }
 
-/* 行高（atLeast 语义 → CSS height 在单元格上即最小高度） */
+/* 行高（atLeast 语义 → CSS height 在单元格上即最小高度）
+   原值取自 Word 模板 XML 的 trHeight。🔴 09-07 调了两行，腾出来的高度全给 r3：
+
+   | 行 | 原 | 现 | 依据 |
+   |---|---|---|---|
+   | r6 审核意见 | 29.8 | 25.0 | 章＋签字改两行排（13mm）＋意见文字一行，适度缩，不过度 |
+   | r7 复查结果 | 37.1 | 20.0 | 实际只写「已整改完成」一行＋签字行，37mm 是纯浪费 |
+
+   省出 21.9mm 全部变成 r3 的余量。**实测**（不是估算）：
+   空白页高 235.2 → 213.3mm，余量 11.8 → 33.7mm；
+   一页可容的「存在安全隐患」内容从约 270 字提到 **约 320 字**
+   （300 字余量 4.9mm ✅／350 字 −1.6mm ❌）。 */
 tr.r0 td { height: 14.1mm; }
 tr.r1 td { height: 11.6mm; }
 tr.r2 td { height: 9.9mm; }
 tr.r3 td { height: 68.3mm; }
 tr.r4 td { height: 19.5mm; }
 tr.r5 td { height: 12.9mm; }
-tr.r6 td { height: 29.8mm; }
-tr.r7 td { height: 37.1mm; }
+tr.r6 td { height: 25.0mm; }
+tr.r7 td { height: 20.0mm; }
 
 .block-head { display: block; }
 .block-body { display: block; margin-top: 2pt; white-space: pre-wrap; }
@@ -138,24 +150,50 @@ tr.r7 td { height: 37.1mm; }
 .legal-head { font-weight: 700; }
 .legal-body { white-space: pre-wrap; }
 
-/* 签字行贴在格子底部。
-   🔴 每个标签后面必须留出手写区 —— 原来 gap 26pt、最后一项紧贴右边框，
-   「日　期：」后面一点空隙都没有，笔落不下去（09-07 王群指出）。
-   改成用 padding-right 给每个标签配一段书写区，间距由它提供，不再用 gap：
-   最后一项的 padding 把整行往左推，右边框内侧空出来的就是填日期的位置。
-   宽度核算（12pt 中文约 4.23mm/字）：「审核意见」那行三个标签合计约 72mm，
-   加 3×22mm 书写区 = 138mm，格内可用约 156mm，不会溢出。 */
-td.block { position: relative; }
-.sign-row {
-  position: absolute;
-  right: 4pt;
-  bottom: 3pt;
+/* 签字区。
+   🔴 09-07 改掉 `position:absolute; bottom:3pt` —— 绝对定位脱离文档流，
+   正文一长就直接压在条款文字上（500 字实测：签字行盖在「第 232 条」那行上）。
+   现在用 flex 列布局：正文在上、签字 `margin-top:auto` 推到底，
+   内容少时仍贴格子底部（与原 Word 模板一致），内容多时被正文顶下去、不会重叠。
+
+   🔴 每个标签后面留 22mm 手写区 —— 原来最后一项紧贴右边框，
+   「日　期：」后面没有空隙，笔落不下去。间距由 padding 提供，不用 gap。
+   宽度核算（12pt 中文约 4.23mm/字）：审核意见那行两个标签＋2×22mm ≈ 87mm，
+   格内可用约 156mm。 */
+.block-inner {
   display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.block-fill { flex: 1 1 auto; }
+
+.sign-row {
+  margin-top: auto;
+  padding-top: 5pt;
+  display: flex;
+  justify-content: flex-end;
   gap: 0;
   font-size: 12pt;
 }
 
 .sign-row span { padding-right: 22mm; }
+.sign-row span:last-child { padding-right: 22mm; }
+
+/* 审核意见：项目部（章）单独一行、压在项目负责人正上方 ——
+   盖章时公章要压住项目经理签名（09-07 王群：「盖章会将项目经理的名盖上」）。
+   两行左边界对齐，章的位置就正好落在签名上方。 */
+.sign-stamp {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  font-size: 12pt;
+}
+
+.sign-stamp span { padding-right: 22mm; }
+
+/* 紧跟在 .sign-stamp 之后的签字行不再抢占剩余空间，两行贴合成一组 */
+.sign-stamp + .sign-row { margin-top: 0; padding-top: 2pt; }
 
 /* ---------- 分页 ----------
    每个 .page 是一张 A4。相邻的 page 之间一律分页：

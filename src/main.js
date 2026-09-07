@@ -124,10 +124,14 @@ function renderOne(d) {
         </tr>
         <tr class="r3">
           <td class="block" colspan="6">
-            <span class="block-head">存在安全隐患：</span>
-            <span class="block-body">${esc(d.hazard)}</span>
-            ${legalHtml(d)}
-            <div class="sign-row"><span>签发人签字：</span><span>日&emsp;期：</span></div>
+            <div class="block-inner">
+              <div class="block-fill">
+                <span class="block-head">存在安全隐患：</span>
+                <span class="block-body">${esc(d.hazard)}</span>
+                ${legalHtml(d)}
+              </div>
+              <div class="sign-row"><span>签发人签字：</span><span>日&emsp;期：</span></div>
+            </div>
           </td>
         </tr>
         <tr class="r4">
@@ -144,16 +148,21 @@ function renderOne(d) {
         </tr>
         <tr class="r6">
           <td class="block" colspan="6">
-            <span class="block-head">审核意见：</span>
-            <div class="sign-row">
-              <span>项目部（章）：</span><span>项目负责人：</span><span>日&emsp;期：</span>
+            <div class="block-inner">
+              <div class="block-fill"><span class="block-head">审核意见：</span></div>
+              <!-- 项目部（章）单独一行、压在项目负责人正上方：
+                   盖章时公章要压住项目经理签名 -->
+              <div class="sign-stamp"><span>项目部（章）：</span></div>
+              <div class="sign-row"><span>项目负责人：</span><span>日&emsp;期：</span></div>
             </div>
           </td>
         </tr>
         <tr class="r7">
           <td class="block" colspan="6">
-            <span class="block-head">复查结果记录：</span>
-            <div class="sign-row"><span>复查人：</span><span>日&emsp;期：</span></div>
+            <div class="block-inner">
+              <div class="block-fill"><span class="block-head">复查结果记录：</span></div>
+              <div class="sign-row"><span>复查人：</span><span>日&emsp;期：</span></div>
+            </div>
           </td>
         </tr>
       </table>
@@ -166,6 +175,14 @@ function renderOne(d) {
 
   return page1 + page2;
 }
+
+/* 合并上限：超过这个条数就提示拆单。
+   🔴 依据是版面实测，不是拍脑袋（09-07 用 headless Chrome 打 PDF 逐档量的，D03 有记）：
+   压缩 r6/r7 行高后，「存在安全隐患」格一页可容 **约 320 字**
+   （300 字余量 4.9mm ✅／350 字 −1.6mm ❌）。
+   按每条「描述 30 字 ＋ 条款 60 字」估：3 条约 270 字安全，4 条约 360 字就会撞线。
+   业务上也站得住：一张单列十几条隐患，分包没法逐条整改闭环。 */
+const MERGE_LIMIT = 3;
 
 /* 多条隐患合并成「一张」整改单：
    隐患和整改要求在同一栏内逐条编号列出，照片统一附在后面。
@@ -295,12 +312,14 @@ async function load() {
     .filter((k) => uniq(k).length > 1)
     .map((k) => ({ unit: '责任单位', owner: '整改责任人', period: '整改期限' }[k]));
 
+  const over = list.length > MERGE_LIMIT;
   const head = list.length > 1
     ? `已合并 ${list.length} 条隐患到一张单　·　${picked.from}`
       + (clash.length ? `；${clash.join('、')}各条不一致，已取第 1 条` : '')
+      + (over ? `；🔴 超过 ${MERGE_LIMIT} 条，版面可能挤爆分页，建议拆成多张单` : '')
     : `已生成：${list[0].no || '(无编号)'}　·　${picked.from}`;
   setStatus(missing.length ? `${head}；这些字段在当前表里找不到：${missing.join('、')}` : head,
-            missing.length > 0 || clash.length > 0);
+            missing.length > 0 || clash.length > 0 || over);
 }
 
 /* 读一条记录的全部字段 */
@@ -447,7 +466,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-07c';
+const BUILD = '2026-09-07d';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = [{
