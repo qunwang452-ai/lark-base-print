@@ -14,20 +14,22 @@ const FIELDS = {
   owner: '负责人',
   period: '要求完成整改时间',
   photos: '整改前图片',
-  /* 违反条款的来源：「对照标准条目」这个 link 字段。
-     🔴 台账里不加 lookup 列 —— 插件自己顺着 link 跨表去读清单表，
-     Base 结构一个字不动。取两样：清单序号（印「第 N 条」）＋ 违反条款（印引用的规范）。 */
+  /* 违反条款有两个来源，按顺序取：
+     ① 「对照标准条目」link —— 人工选定的，顺着 link 跨表读清单表
+     ② 「AI初判结果」 —— link 为空时兜底，序号和条目原文都在这段文本里，不必回表查
+     🔴 台账里不加 lookup 列，Base 结构一个字不动。 */
   standard: '对照标准条目',
+  aiHint: 'AI初判结果',
 };
 
-/* 清单表里要读的两个字段，和单据上「违反条款」那行的出处表述。
+/* 清单表里要读的字段，和单据上「违反条款」那行的出处表述。
    🔴 出处 = 中冶南方政〔2026〕131 号《中冶南方安全检查隐患考核实施细则》，
    Base 的「隐患考核标准清单」345 条即出自该文（见 D08 一）。
    改这里之前先回原件核对文号与附件号——这行要印在正式单据上。 */
 const STD = {
   table: '隐患考核标准清单',
   no: '清单序号',
-  clause: '违反条款',
+  content: '隐患内容',
   source: '《中冶南方安全检查隐患考核实施细则》（中冶南方政〔2026〕131号）',
 };
 
@@ -341,36 +343,84 @@ async function readOne(table, byName, recordId) {
   };
 }
 
-/* 顺着「对照标准条目」link 跨表读清单，拼出「第 N 条 · 违反的规范」。
-   🔴 不读 AI初判结果 里的序号：那是 AI 的建议，安全员改选了条目它不会跟着变，
-   照它印会印出跟定级不一致的条款。以人工选定的 link 为准。 */
+/* 违反条款：条目内容 ＋ 条款号。
+   两个来源按顺序取：① 人工选的「对照标准条目」link ② 「AI初判结果」兜底。
+
+   🔴 为什么 AI 的序号可以直接印、不标「待核」：
+   打印这个动作本身就是人工核定 —— 安全员看过隐患、决定开单才会来打印，
+   09-07 王群定。所以两个来源在单据上不做区分。
+   （这不违反「AI 只归类不判级」：等级仍由「对照标准条目」lookup 带出，
+   这里只是取条款号印在单子上，不参与定级。） */
 async function readClause(table, byName, recordId) {
+  const fromLink = await clauseFromLink(table, byName, recordId);
+  if (fromLink) return fromLink;
+  return clauseFromAI(await textOf(table, byName, FIELDS.aiHint, recordId));
+}
+
+async function textOf(table, byName, name, recordId) {
+  const m = byName.get(name);
+  if (!m) return '';
+  try {
+    return (await table.getCellString(m.id, recordId)) || '';
+  } catch {
+    return '';
+  }
+}
+
+/* 来源①：顺着 link 跨表读清单表的「清单序号」+「隐患内容」 */
+async function clauseFromLink(table, byName, recordId) {
   const meta = byName.get(FIELDS.standard);
   if (!meta) return '';
   try {
     const cell = await table.getCellValue(meta.id, recordId);
     if (!Array.isArray(cell) || !cell.length) return '';
-
     const linkTableId = cell[0]?.tableId || cell[0]?.table_id;
     if (!linkTableId) return '';
+
     const stdTable = await bitable.base.getTableById(linkTableId);
     const stdMeta = new Map((await stdTable.getFieldMetaList()).map((m) => [m.name, m]));
     const noId = stdMeta.get(STD.no)?.id;
-    const clauseId = stdMeta.get(STD.clause)?.id;
+    const contentId = stdMeta.get(STD.content)?.id;
 
     const parts = [];
     for (const link of cell) {
       const rid = link?.recordIds?.[0] || link?.record_ids?.[0] || link?.recordId;
       if (!rid) continue;
       const no = noId ? await stdTable.getCellString(noId, rid) : '';
-      const cl = clauseId ? await stdTable.getCellString(clauseId, rid) : '';
-      const head = no ? `${STD.source}第 ${no} 条` : STD.source;
-      parts.push(cl ? `${head}\n${cl}` : head);
+      const content = contentId ? await stdTable.getCellString(contentId, rid) : '';
+      parts.push(fmtClause(content, no));
     }
-    return parts.join('\n');
+    return parts.filter(Boolean).join('\n');
   } catch {
     return '';
   }
+}
+
+/* 来源②：从「AI初判结果」文本里解析序号和条目原文。
+   实测只有这四种写法（09-07 全表导出核对）：
+     a) 'I级 [232] 1、基坑周边堆载超过设计允许值…'
+     b) 'AI建议对照清单第 41 条 · 临时用电｜…（I级）\n条目原文：1、未采用三级配电…\n\n这会定成…'
+     c) 'AI在清单里没有找到对应条目 → …'      ← 无序号，不出这一行
+     d) 'III级 一般及轻微隐患'                ← 无序号，同上 */
+function clauseFromAI(ai) {
+  if (!ai) return '';
+
+  const a = ai.match(/\[(\d+)\]\s*([\s\S]+)/);
+  if (a) return fmtClause(a[2].trim(), a[1]);
+
+  const b = ai.match(/清单第\s*(\d+)\s*条/);
+  if (b) {
+    const body = ai.match(/条目原文：([\s\S]*?)(?:\n\s*\n|$)/);
+    return fmtClause(body ? body[1].trim() : '', b[1]);
+  }
+  return '';
+}
+
+/* 单据上的呈现：条目内容在前，条款号在后（09-07 王群定） */
+function fmtClause(content, no) {
+  const tail = no ? `——${STD.source}第 ${no} 条` : '';
+  if (!content) return tail;
+  return tail ? `${content}\n${tail}` : content;
 }
 
 document.getElementById('btn-print').onclick = () => window.print();
@@ -397,7 +447,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-07a';
+const BUILD = '2026-09-07b';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = [{
@@ -408,9 +458,9 @@ const OFFLINE_SAMPLE = [{
   require: '（样例）限期整改到位并经验收；整改期间设置警戒区。',
   owner: '（样例）张三',
   period: '2026-01-01',
-  clause: '《中冶南方安全检查隐患考核实施细则》（中冶南方政〔2026〕131号）第 154 条\n'
-        + '1、《建筑施工高处作业安全技术规范》（JGJ 80-2016）4.1.2。\n'
-        + '2、《安全带》（GB 6095-2021）5.1。',
+  clause: '1、基坑周边堆载超过设计允许值，或无支护的基坑、沟、槽周边与开挖深度'
+        + '同等水平距离范围内存在堆载。\n'
+        + '——《中冶南方安全检查隐患考核实施细则》（中冶南方政〔2026〕131号）第 232 条',
   photos: [ph('样例照片 1'), ph('样例照片 2'), ph('样例照片 3')],
 }, {
   no: 'SAMPLE-002',
