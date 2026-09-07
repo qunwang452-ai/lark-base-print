@@ -98,8 +98,15 @@ body {
 }
 
 /* ---------- 表格 ---------- */
+/* 🔴 宽度用 600px 而不是 158.9mm（＝600.57px）——
+   非整数像素会让最外侧边框落在半像素上，被抗锯齿渲染成一条淡细线，
+   看起来「右边的线比别处细」（09-07 王群发现）。
+   600px = 158.75mm，与原件 158.9 差 0.15mm，肉眼不可见；
+   列宽同样全部取整数像素，保证每条竖线都落在整像素上。
+   （原件 Word 的框线是 w:sz="4" 即 0.5pt，比这里的 1px 还细，
+   所以问题不在线宽设置，加粗解决不了。） */
 table.form {
-  width: 158.9mm;
+  width: 600px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 12pt;
@@ -228,6 +235,63 @@ tr.r7 td { height: 20.0mm; }
 
 /* 紧跟在 .sign-stamp 之后的签字行不再抢占剩余空间，两行贴合成一组 */
 .sign-stamp + .sign-row { margin-top: 0; padding-top: 2pt; }
+
+/* ---------- 考核单（CCEPC-PM-AQ-29）----------
+   宽度沿用整改单的 158.9mm（王群定：格式大小按安全隐患通知单），
+   实际在用的原件是 150.3mm，列宽已等比放大。
+
+   🔴 高度实测账（一页可用 247，标题区占 23.5，留给表格 223.5）：
+     k0 11 ＋ k1 11 ＋ k2 70 ＋ k3 42.5* ＋ k4 40.5* ＋ k5 16.2* ＋ k6 27* ＝ 218.2
+     带 * 的是**被内容撑到的实际高度**，设定值没用 —— 处理决定/签字位/注都是定长文本。
+     所以只有 k2 能调，余量全靠它匀。改任何一行前先按这个账重算。 */
+tr.k0 td { height: 11.0mm; }
+tr.k1 td { height: 11.0mm; }
+tr.k2 td { height: 70.0mm; }   /* 违约事件＋两套引用，最大的一格 */
+tr.k3 td { height: 26.0mm; }   /* 处理决定是一段话，不是一个金额；实测会被撑到约 42.5mm */
+tr.k4 td { height: 38.0mm; }   /* 审核意见＋2×2 四个签字位（每位含日期，共 4 行） */
+tr.k5 td { height: 12.0mm; }
+tr.k6 td { height: auto; }
+
+/* 两套引用：各带小标题，条款用 9pt（同整改单的违反条款） */
+.ref-block {
+  margin-top: 5pt;
+  padding-top: 3pt;
+  border-top: 1px dashed #000;
+}
+
+.ref-head {
+  font-size: 10.5pt;
+  font-weight: 700;
+}
+
+.ref-body {
+  margin-top: 1pt;
+  font-size: 9pt;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+/* 考核单的四个签字位：2×2，每格「签字位 ＋ 日期」两行。
+   照实际发出的单据排布（安全工程师／标段项目经理／安全生产监督管理部／项目部（章）），
+   比整改单多两位 —— 审批链是出具→审核→批准三级。 */
+.sign-grid {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3pt 10mm;
+  padding-left: 6mm;
+  font-size: 12pt;
+}
+
+.sg-cell > div { padding-bottom: 3pt; }
+
+/* 单据末尾的「注」：小字，靠左，不居中 */
+td.note {
+  font-size: 9pt;
+  line-height: 1.5;
+  vertical-align: top;
+  padding: 4pt;
+}
 
 /* ---------- 分页 ----------
    每个 .page 是一张 A4。相邻的 page 之间一律分页：
