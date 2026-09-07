@@ -596,7 +596,10 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-07h';
+const BUILD = '2026-09-07i';
+
+/* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
+document.getElementById('build-tag').textContent = `build ${BUILD}`;
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = [{
