@@ -608,20 +608,16 @@ async function clauseFromLink(table, byName, recordId) {
   const meta = byName.get(FIELDS.standard);
   if (!meta) return '';
   try {
-    const cell = await table.getCellValue(meta.id, recordId);
-    if (!Array.isArray(cell) || !cell.length) return '';
-    const linkTableId = cell[0]?.tableId || cell[0]?.table_id;
-    if (!linkTableId) return '';
+    const link = linkOf(await table.getCellValue(meta.id, recordId));
+    if (!link) return '';
 
-    const stdTable = await bitable.base.getTableById(linkTableId);
+    const stdTable = await bitable.base.getTableById(link.tableId);
     const stdMeta = new Map((await stdTable.getFieldMetaList()).map((m) => [m.name, m]));
     const noId = stdMeta.get(STD.no)?.id;
     const contentId = stdMeta.get(STD.content)?.id;
 
     const parts = [];
-    for (const link of cell) {
-      const rid = link?.recordIds?.[0] || link?.record_ids?.[0] || link?.recordId;
-      if (!rid) continue;
+    for (const rid of link.recordIds) {
       const no = noId ? await stdTable.getCellString(noId, rid) : '';
       const content = contentId ? await stdTable.getCellString(contentId, rid) : '';
       parts.push(fmtClause(content, no));
@@ -654,17 +650,30 @@ function clauseFromAI(ai) {
 
 /* ── 生成整改单编号 ──────────────────────────────────────── */
 
+/* 🔴 link 字段的 cell value 是**对象**不是数组（SDK 的 IOpenLink）：
+     { text, type, recordIds: string[], tableId, record_ids, table_id }
+   09-07 我按数组写成 `Array.isArray(cell) ? cell[0] : 返回空`，
+   结果三处读 link 的地方全都静默失败 —— 整改单的「违反条款」自上线起就没印出来过，
+   因为 catch 之后返回空串、不报错，版面上只是少一段，没人看得出来。
+   旧版本 SDK 可能返回数组，两种都兜住。 */
+function linkOf(cell) {
+  const o = Array.isArray(cell) ? cell[0] : cell;
+  if (!o) return null;
+  const tableId = o.tableId || o.table_id;
+  const ids = o.recordIds || o.record_ids || (o.recordId ? [o.recordId] : []);
+  if (!tableId || !ids.length) return null;
+  return { tableId, recordIds: ids, text: o.text || '' };
+}
+
 /* 顺着「所在项目」link 读出项目编号（01–10） */
 async function readProjectCode(table, byName, recordId) {
   const meta = byName.get(FIELDS.project);
   if (!meta) return '';
   try {
-    const cell = await table.getCellValue(meta.id, recordId);
-    if (!Array.isArray(cell) || !cell.length) return '';
-    const tid = cell[0]?.tableId || cell[0]?.table_id;
-    const rid = cell[0]?.recordIds?.[0] || cell[0]?.record_ids?.[0] || cell[0]?.recordId;
-    if (!tid || !rid) return '';
-    const pt = await bitable.base.getTableById(tid);
+    const link = linkOf(await table.getCellValue(meta.id, recordId));
+    if (!link) return '';
+    const rid = link.recordIds[0];
+    const pt = await bitable.base.getTableById(link.tableId);
     const pm = new Map((await pt.getFieldMetaList()).map((m) => [m.name, m]));
     const codeId = pm.get(ORDER.projCode)?.id;
     return codeId ? (await pt.getCellString(codeId, rid) || '').trim() : '';
@@ -705,7 +714,19 @@ async function assignOrderNos(table, byName, recordIds, kind = 'zg') {
     const cur = (await table.getCellString(noMeta.id, rid) || '').trim();
     if (cur) { done.push({ rid, no: cur, skipped: true }); continue; }
     const code = await readProjectCode(table, byName, rid);
-    if (!code) throw new Error('这条记录没有「所在项目」，或项目信息表里查不到项目编号');
+    if (!code) {
+      /* 🔴 带上实际读到的结构 —— 09-07 就是因为报错信息里没有它，
+         我把 SDK 的 link 结构猜错了还查了半天 */
+      let raw = '(读不到)';
+      try {
+        const m = byName.get(FIELDS.project);
+        raw = JSON.stringify(await table.getCellValue(m.id, rid)).slice(0, 200);
+      } catch (e) { raw = `读取异常 ${e?.message || e}`; }
+      throw new Error(
+        `取不到项目编号。「所在项目」原始值 = ${raw}；`
+        + `请确认该记录已选所在项目，且项目信息表里有「${ORDER.projCode}」字段`
+      );
+    }
     const no = await nextOrderNo(table, byName, code, kind);
     await table.setCellValue(noMeta.id, rid, no);
     done.push({ rid, no, skipped: false });
@@ -805,12 +826,10 @@ async function readPenaltyClause(table, byName, recordId) {
   const meta = byName.get(PENALTY.clauseField);
   if (!meta) return null;
   try {
-    const cell = await table.getCellValue(meta.id, recordId);
-    if (!Array.isArray(cell) || !cell.length) return null;
-    const tid = cell[0]?.tableId || cell[0]?.table_id;
-    const rid = cell[0]?.recordIds?.[0] || cell[0]?.record_ids?.[0] || cell[0]?.recordId;
-    if (!tid || !rid) return null;
-    const rt = await bitable.base.getTableById(tid);
+    const link = linkOf(await table.getCellValue(meta.id, recordId));
+    if (!link) return null;
+    const rid = link.recordIds[0];
+    const rt = await bitable.base.getTableById(link.tableId);
     const rm = new Map((await rt.getFieldMetaList()).map((m) => [m.name, m]));
     const get = async (name) => {
       const id = rm.get(name)?.id;
@@ -900,7 +919,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-07j';
+const BUILD = '2026-09-07k';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
