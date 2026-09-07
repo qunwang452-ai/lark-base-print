@@ -147,7 +147,12 @@ function attachPage(d) {
       <table class="form attach">
         <colgroup><col style="width:300px" /><col style="width:300px" /></colgroup>
         <tr><td class="attach-head" colspan="2">
-          附件：隐患照片${d.no ? `（编号 ${esc(d.no)}）` : ''}
+          附件：隐患照片${(() => {
+            /* 🔴 编号要跟着当前单据类型取：考核单打印时 d.no（整改单编号）是空的，
+               照抄会印出一个没有编号的附件页标题 */
+            const n = docType === 'kh' ? d.noKh : d.no;
+            return n ? `（编号 ${esc(n)}）` : '';
+          })()}
         </td></tr>
         ${rows.join('')}
       </table>
@@ -919,7 +924,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-07k';
+const BUILD = '2026-09-07m';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
