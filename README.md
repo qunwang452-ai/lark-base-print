@@ -80,8 +80,13 @@ pdfinfo out.pdf | grep Pages
 **Pages 的源是 `gh-pages` 分支**（`build_type: legacy`），不是 GitHub Actions。
 构建产物平铺在该分支根目录，外加一个 `.nojekyll`。`dist/` 被 `.gitignore` 排除，不进 `main`。
 
+🔴 **改了代码不发布 = 线上没变。** Base 插件面板加载的是上面这个 Pages 地址，
+不是本地 `dist/`。09-07 就漏过一轮：改完 `src/`、`npm run build` 跑过，
+在 Base 里点「重新读取」仍是旧版，查线上资源指纹才发现根本没推。
+
 ```bash
-# 1. 改 src/main.js 顶部的 BUILD 号（诊断信息里会显示，用来确认线上跑的是哪一版）
+# 1. 改 src/main.js 底部的 BUILD 号
+#    🔴 每次发布必改——它显示在插件诊断信息里，是使用者确认「我看到的是不是新版」的唯一凭据
 # 2. 构建并提交源码
 npm run build
 git add -A && git commit -m "feat: ..." && git push origin main
@@ -89,14 +94,29 @@ git add -A && git commit -m "feat: ..." && git push origin main
 # 3. 把 dist/ 推到 gh-pages（assets 文件名带 hash，必须清旧的，不能只覆盖）
 git worktree add /tmp/gh-pages gh-pages
 cd /tmp/gh-pages && git rm -rq index.html assets && rm -rf assets index.html
-cp -R <repo>/dist/. .          # .nojekyll 已在分支里，别删
+
+#    🔴 只拷这两项，不要写 `cp -R <repo>/dist/. .`——
+#    `dist/` 里有个 2026-08-31 遗留的独立 git 仓库（dist/.git，无 remote，已废弃），
+#    `dist/.` 会把它一起拷过来，报 `cp: ././.git: Not a directory`，
+#    而且是拷到一半才报：此时 git rm 已执行，工作树停在半完成状态。
+cp <repo>/dist/index.html .
+cp -R <repo>/dist/assets .
+find . -name ".git" -not -path "./.git"     # 必须输出为空，否则别提交
+
 git add -A && git commit -m "deploy: build <BUILD号> <说明>" && git push origin gh-pages
 cd - && git worktree remove /tmp/gh-pages --force
 
-# 4. 验证（Pages 构建约需 1 分钟）
+# 4. 验证（Pages 构建约需 1 分钟）——两步都要做
 gh api repos/qunwang452-ai/lark-base-print/pages/builds/latest --jq '.status + " " + .commit'
-curl -s https://qunwang452-ai.github.io/lark-base-print/ | grep -o 'assets/index-[^"]*css'
+#    ① 页面引用的资源指纹变了没
+curl -s https://qunwang452-ai.github.io/lark-base-print/ | grep -oE 'assets/index-[^"]+'
+#    ② 真去抓 JS 确认新代码在里面——指纹变了不等于内容对
+curl -s https://qunwang452-ai.github.io/lark-base-print/assets/index-XXXX.js -o /tmp/on.js
+python3 -c "s=open('/tmp/on.js',encoding='utf-8',errors='replace').read(); print('<你这次加的关键字>' in s)"
 ```
+
+发布后飞书会缓存 iframe：**关掉插件面板重开，或 `Cmd+Shift+R`**，
+再看诊断信息里的 `build:` 是不是新号。
 
 🔴 `.github-pending/deploy.yml` 是**另一条没启用的路**（Actions + `upload-pages-artifact`）。
 它和现在的 legacy 模式互斥：要用它得先把 Pages 的源从 `gh-pages` 分支改成 GitHub Actions，
