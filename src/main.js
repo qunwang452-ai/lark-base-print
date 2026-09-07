@@ -447,7 +447,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-07b';
+const BUILD = '2026-09-07c';
 
 /* 脱离飞书直接打开时（本地调版式用），SDK 不会就绪，显示样例数据 */
 const OFFLINE_SAMPLE = [{

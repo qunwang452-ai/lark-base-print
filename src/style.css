@@ -138,16 +138,24 @@ tr.r7 td { height: 37.1mm; }
 .legal-head { font-weight: 700; }
 .legal-body { white-space: pre-wrap; }
 
-/* 签字行贴在格子底部 */
+/* 签字行贴在格子底部。
+   🔴 每个标签后面必须留出手写区 —— 原来 gap 26pt、最后一项紧贴右边框，
+   「日　期：」后面一点空隙都没有，笔落不下去（09-07 王群指出）。
+   改成用 padding-right 给每个标签配一段书写区，间距由它提供，不再用 gap：
+   最后一项的 padding 把整行往左推，右边框内侧空出来的就是填日期的位置。
+   宽度核算（12pt 中文约 4.23mm/字）：「审核意见」那行三个标签合计约 72mm，
+   加 3×22mm 书写区 = 138mm，格内可用约 156mm，不会溢出。 */
 td.block { position: relative; }
 .sign-row {
   position: absolute;
   right: 4pt;
   bottom: 3pt;
   display: flex;
-  gap: 26pt;
+  gap: 0;
   font-size: 12pt;
 }
+
+.sign-row span { padding-right: 22mm; }
 
 /* ---------- 分页 ----------
    每个 .page 是一张 A4。相邻的 page 之间一律分页：
