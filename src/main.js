@@ -1,4 +1,5 @@
 import { bitable } from '@lark-base-open/js-sdk';
+import QRCode from 'qrcode';
 
 /* 字段映射：左边是单据上的位置，右边是「隐患整改台账」里的字段名。
    换表或改字段名时只动这里。
@@ -26,7 +27,63 @@ const FIELDS = {
   /* 违约事件叙述要用：时间＋地点＋人物＋违章 */
   checkDate: '检查日期',
   place: '现场位置',
+  /* 整改回执二维码的目标：台账里的 formula 字段，内容是这条隐患专属的表单链接
+     （编号已预填）。链接怎么拼在公式里定义，插件只负责印出来，不在这拼字符串——
+     否则改一次链接要改两处。 */
+  receipt: '整改回执链接',
 };
+
+/* ── 整改回执二维码 ────────────────────────────────────────
+   分包扫单子上的码 → 打开「隐患整改回执」表单 → 传整改后照片 → 自动写回台账。
+
+   🔴 只印在整改单（AQ-05）上。考核单是罚款通知，不需要回传照片。
+
+   🔴 一张单合并了多条隐患时印的是**通用码**（不带编号预填），因为一个码只能指一条。
+      此时分包必须自己抄编号，抄错就挂不上台账 —— 所以合并开单时码下方会多一行提示。
+      要让分包省掉抄编号这一步，就一条隐患开一张单。
+
+   🔴 官方坑：想用飞书分享面板里的二维码是不行的 —— 那个码不带预填参数。
+      必须自己按带参数的链接生成码，也就是这里做的事。 */
+const RECEIPT_FORM_URL =
+  'https://ajptfmp8hncz.jp.larksuite.com/share/base/shrjpi7WmenLVeKV6JyXainn5jd';
+
+/* 生成二维码，返回 PNG 的 dataURL。渲染函数是同步的，所以码必须在读数据阶段就备好。
+
+   🔴 用 PNG 不用 SVG：qrcode 的 SVG 是用 **stroke 描边**画模块的，缩放到 mm 尺寸后
+   打印/光栅化会在模块边界产生抗锯齿灰边，**肉眼看完全正常、解码器一个都认不出**。
+   09-08 实测：同一条链接，库直出 PNG 能解，走 SVG 渲染进 PDF 后 300dpi 都解不出。
+   位图没有这个问题 —— 生成 600px 再缩到 22mm 显示，打印够清晰。
+
+   🔴 margin 是 QR 规范要求的静区（quiet zone），单位是**模块**不是像素，必须留 4。
+   errorCorrectionLevel 用 M：单据会被复印、可能沾灰，L 容错太低。 */
+async function makeQr(text) {
+  try {
+    /* 🔴 width 要对准打印尺寸（22mm @300dpi ≈ 260px），不能贪大。
+       09-08 实测：生成 600px 再由 CSS 缩到 22mm，缩小重采样会把模块边界糊掉，
+       打出来肉眼没问题、解码器全军覆没。配合 CSS 的 image-rendering:pixelated
+       让浏览器不做平滑插值。 */
+    return await QRCode.toDataURL(text, {
+      margin: 4, errorCorrectionLevel: 'M', width: 260,
+    });
+  } catch {
+    return '';
+  }
+}
+
+/* 合并开单时用的通用码，全局只生成一次 */
+let genericQr = '';
+
+/* 给每条记录挂上二维码，并备好通用码。renderAll 之前必须调用。 */
+async function attachQr(list) {
+  if (!genericQr) genericQr = await makeQr(RECEIPT_FORM_URL);
+  for (const d of list) {
+    /* 🔴 链接算不出来时回落到通用码，而不是不印码 —— 单子发出去了才发现
+       没法回传就太晚了。回落时同样标 qrGeneric，让「须自行填隐患编号」那行出来，
+       否则分包不填编号，回执挂不上台账。 */
+    d.qr = d.receipt ? await makeQr(d.receipt) : genericQr;
+    d.qrGeneric = !d.receipt;
+  }
+}
 
 /* ── 整改单编号 ──────────────────────────────────────────────
    格式 `ZG-<项目编号>-<年><3位流水>`，例 `ZG-07-26001`（09-07 王群定）。
@@ -162,12 +219,27 @@ function attachPage(d) {
 function renderOne(d) {
   const checkboxes = DEPTS.map((n) => `▢${n}`).join('&nbsp;&nbsp;');
 
+  /* 整改回执二维码：绝对定位挂在编号行右侧，**不占流式高度** ——
+     🔴 这是故意的：单据版面按 mm 排到 A4 满格，「存在安全隐患」栏一页只装得下
+     CONTENT_LIMIT 字。二维码若参与流式布局会往下挤，那个字数边界就得重测。 */
+  /* 🔴 说明文字排在码的**左侧**而不是下方：标题区到表格顶只有 ~23mm，
+     文字放下方会溢进表格第一行的「合同号」格里（09-08 出图实测）。 */
+  const qrHtml = d.qr
+    ? `<span class="qr-badge">
+         <span class="qr-caps">
+           <span class="qr-cap">扫码上传<br/>整改照片</span>
+           ${d.qrGeneric ? '<span class="qr-cap qr-warn">须自行填<br/>隐患编号</span>' : ''}
+         </span>
+         <span class="qr-img"><img src="${d.qr}" alt="整改回执二维码" /></span>
+       </span>`
+    : '';
+
   /* 第一页：单据本体。列宽用 colgroup 锁死，与模板 tblGrid 一致 */
   const page1 = `
     <div class="page">
       <p class="doc-title">安全隐患通知(整改)单</p>
       <p class="doc-subtitle">（CCEPC-PM-AQ-05）</p>
-      <p class="doc-no">编号：${esc(d.no)}</p>
+      <p class="doc-no">编号：${esc(d.no)}${qrHtml}</p>
       <table class="form">
         <colgroup>
           <col style="width:118px" /><col style="width:108px" />
@@ -394,6 +466,10 @@ function mergeRecords(list) {
     })(),
     people: [...new Set(list.map((d) => d.people).filter(Boolean))].join('、'),
     photos,
+    /* 🔴 合并单印通用码：一个码指不了多条隐患。分包得自己抄编号，
+       所以 qrGeneric 置真，版面上会多印一行提示。 */
+    qr: genericQr,
+    qrGeneric: true,
   };
 }
 
@@ -509,6 +585,8 @@ async function load() {
     list.push(await readOne(table, byName, picked.ids[i]));
   }
 
+  /* 🔴 必须在 renderAll 之前：渲染是同步的，二维码得先备好 */
+  await attachQr(list);
   lastList = list;
   renderAll(list);
 
@@ -581,6 +659,8 @@ async function readOne(table, byName, recordId) {
     penalty: await readPenaltyClause(table, byName, recordId),
     amount: await text(PENALTY.amountField),
     people: await text(PENALTY.peopleField),
+    /* 整改回执链接（formula 字段，getCellString 能直接读出文本） */
+    receipt: await text(FIELDS.receipt),
   };
 }
 
@@ -924,7 +1004,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-07m';
+const BUILD = '2026-09-08a';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
@@ -945,6 +1025,8 @@ const OFFLINE_SAMPLE = [{
              no: '1.2', money: '2000/人·次' },
   amount: '4000',
   people: '王子清、张三',
+  receipt: 'https://ajptfmp8hncz.jp.larksuite.com/share/base/'
+         + 'shrjpi7WmenLVeKV6JyXainn5jd?prefill_%E9%9A%90%E6%82%A3%E7%BC%96%E5%8F%B7=YH-20260831010',
   photos: [ph('样例照片 1'), ph('样例照片 2'), ph('样例照片 3')],
 }, {
   no: 'ZG-07-26002',
@@ -967,8 +1049,9 @@ function ph(label) {
 }
 
 let ready = false;
-const offlineTimer = setTimeout(() => {
+const offlineTimer = setTimeout(async () => {
   if (!ready) {
+    await attachQr(OFFLINE_SAMPLE);
     renderAll(OFFLINE_SAMPLE);
     setStatus('未连接到多维表格，当前显示样例数据（仅用于调版式）', true);
   }

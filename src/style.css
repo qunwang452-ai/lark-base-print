@@ -363,3 +363,53 @@ td.ph-empty { height: 62mm; }
   table.attach { page-break-inside: auto; }
   table.attach tr { page-break-inside: avoid; }
 }
+
+/* ── 整改回执二维码 ──────────────────────────────────────────
+   🔴 绝对定位，**不参与流式布局** —— 单据按 mm 排到 A4 满格，
+   「存在安全隐患」栏一页只装得下 CONTENT_LIMIT 字。二维码若占流式高度，
+   会把表格往下推、改变那个字数边界，等于要重测整套分页。
+   定位基准是编号行（.doc-no），所以屏幕和打印（padding 归零）都跟着走。
+
+   🔴 说明文字排在码的左侧、不在下方：标题区到表格顶只有约 23mm，
+   竖着排会溢进表格第一行的「合同号」格（09-08 出 PDF 实测过）。 */
+.doc-no { position: relative; }
+
+.qr-badge {
+  position: absolute;
+  right: 0;
+  top: -18mm;               /* 落在标题右侧的空白区：标题居中，右边这块是空的 */
+  display: flex;
+  align-items: center;
+  gap: 1.5mm;
+  line-height: 1.15;
+}
+
+.qr-img { display: block; }
+/* 🔴 22mm 不是随便定的：码是 49 模块，22mm → 0.45mm/模块。
+   18mm 时只有 0.37mm/模块，09-08 实测 150dpi 就解不出来了（复印件、
+   手机远拍都可能落到这个质量），没有余量。放大到 22mm 才留出冗余。 */
+/* 🔴 22mm 不是随便定的：码 49 模块＋静区 8＝57，22mm → 0.386mm/模块。
+   业界经验模块要 ≥0.33mm 手机才扫得稳，18mm 时只有 0.31mm，没有余量。
+   🔴 用 img 不用内联 svg —— 见 main.js makeQr 上方那段（SVG 描边渲染后解码器认不出）。 */
+.qr-img img {
+  display: block;
+  width: 22mm;
+  height: 22mm;
+  /* 🔴 禁止平滑插值：模块边界一糊，扫码器就认不出（09-08 实测） */
+  image-rendering: pixelated;
+}
+
+.qr-caps {
+  display: flex;
+  flex-direction: column;
+  gap: 1mm;
+  text-align: right;
+}
+
+.qr-cap {
+  font-size: 6pt;
+  white-space: nowrap;
+}
+
+/* 合并开单时的「须自行填隐患编号」——这行是警示，要看得见 */
+.qr-warn { font-weight: 700; }

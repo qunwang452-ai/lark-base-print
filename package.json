@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@lark-base-open/js-sdk": "^1.0.2",
+    "qrcode": "^1.5.4",
     "vite": "^8.2.2"
   }
 }
