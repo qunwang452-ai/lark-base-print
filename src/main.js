@@ -58,12 +58,15 @@ const RECEIPT_FORM_URL =
    errorCorrectionLevel 用 M：单据会被复印、可能沾灰，L 容错太低。 */
 async function makeQr(text) {
   try {
-    /* 🔴 width 要对准打印尺寸（22mm @300dpi ≈ 260px），不能贪大。
-       09-08 实测：生成 600px 再由 CSS 缩到 22mm，缩小重采样会把模块边界糊掉，
-       打出来肉眼没问题、解码器全军覆没。配合 CSS 的 image-rendering:pixelated
-       让浏览器不做平滑插值。 */
+    /* 🔴 用 scale（每模块整数像素）不用 width（总宽）。
+       10-09 王群反馈「打印出来不是正方形、识别不了」：真实回执链接 180 字节 → 53 模块＋静区 8＝61 格，
+       width:260 时每格 260/61≈4.26px，库只能把模块画成 4px／5px 混排——**PNG 原图里的方块就大小不一**，
+       打印再缩一次更变形。实测（Chrome 打 PDF 后光栅化解码）：width:260 要 200dpi 才解得出，
+       scale:8（488px、每格 8×8）150dpi 就能解。
+       09-08 那条「600px 缩到 22mm 会糊」是平滑插值造成的，CSS 已用 image-rendering:pixelated 禁掉，
+       整数倍的大图不再有问题。 */
     return await QRCode.toDataURL(text, {
-      margin: 4, errorCorrectionLevel: 'M', width: 260,
+      margin: 4, errorCorrectionLevel: 'M', scale: 8,
     });
   } catch {
     return '';
@@ -1004,7 +1007,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-09-08a';
+const BUILD = '2026-10-09a';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
