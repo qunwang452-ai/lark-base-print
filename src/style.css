@@ -384,7 +384,11 @@ td.ph-empty { height: 62mm; }
   line-height: 1.15;
 }
 
-.qr-img { display: block; }
+/* 🔴 10-09：王群在浏览器里打开 Base 打印，预览里码被压成约 22×18.5mm（宽对、高矮），扫不出。
+   本机 headless Chrome 直接打开页面打印是正方形，复现不了——差别在 Base 里插件跑在侧栏 iframe 里打印。
+   兜底：外框也写死尺寸且不参与 flex 伸缩；img 加 aspect-ratio＋object-fit:contain，
+   哪怕盒子被压扁，码也只会等比缩小、不会被拉成长方形。 */
+.qr-img { display: block; flex: none; width: 22mm; height: 22mm; }
 /* 🔴 22mm 不是随便定的：码是 49 模块，22mm → 0.45mm/模块。
    18mm 时只有 0.37mm/模块，09-08 实测 150dpi 就解不出来了（复印件、
    手机远拍都可能落到这个质量），没有余量。放大到 22mm 才留出冗余。 */
@@ -396,6 +400,10 @@ td.ph-empty { height: 62mm; }
   display: block;
   width: 22mm;
   height: 22mm;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
   /* 🔴 禁止平滑插值：模块边界一糊，扫码器就认不出（09-08 实测） */
   image-rendering: pixelated;
 }
