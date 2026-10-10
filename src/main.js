@@ -648,7 +648,9 @@ async function readOne(table, byName, recordId) {
     no: await text(FIELDS.no),
     noKh: await text(FIELDS.noKh),
     project: await text(FIELDS.project),
-    unit: await text(FIELDS.unit),
+    /* 🔴 分包单位表的「单位名称」带项目编号前缀（「07 河南五建 PT.…」），
+       单据上不要这个编号（10-10 王群），去掉开头的两位数字 */
+    unit: (await text(FIELDS.unit)).replace(/(^|[,，、]\s*)\d{2}\s*/g, '$1'),
     hazard: await text(FIELDS.hazard),
     require: await text(FIELDS.require),
     owner: await text(FIELDS.owner),
@@ -937,6 +939,8 @@ async function readPenaltyClause(table, byName, recordId) {
 
 /* 单据上的呈现：条目内容在前，条款号在后（09-07 王群定） */
 function fmtClause(content, no) {
+  /* 🔴 「清单序号」是数字字段，getCellString 读出来是「156.00」（10-10 打印实测），去掉小数尾巴 */
+  no = String(no || '').trim().replace(/\.0+$/, '');
   const tail = no ? `——${STD.source}第 ${no} 条` : '';
   if (!content) return tail;
   return tail ? `${content}\n${tail}` : content;
@@ -1007,7 +1011,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-10-09b';
+const BUILD = '2026-10-10a';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
