@@ -220,7 +220,8 @@ function attachPage(d) {
 }
 
 function renderOne(d) {
-  const checkboxes = DEPTS.map((n) => `▢${n}`).join('&nbsp;&nbsp;');
+  /* 责任部门按两行四列排：自然换行会把「办公室」拆成「办公｜室」（10-10 王群） */
+  const checkboxes = [...DEPTS, '其他：'].map((n) => `<span>▢${n}</span>`).join('');
 
   /* 整改回执二维码：绝对定位挂在编号行右侧，**不占流式高度** ——
      🔴 这是故意的：单据版面按 mm 排到 A4 满格，「存在安全隐患」栏一页只装得下
@@ -251,7 +252,7 @@ function renderOne(d) {
         </colgroup>
         <tr class="r0">
           <td class="label">工程名称</td>
-          <td class="val" colspan="3">${esc(d.project || DEFAULT_PROJECT)}</td>
+          <td class="val proj" colspan="3">${esc(d.project || DEFAULT_PROJECT)}</td>
           <td class="label">合同号</td>
           <td class="val"></td>
         </tr>
@@ -261,7 +262,7 @@ function renderOne(d) {
         </tr>
         <tr class="r2">
           <td class="label">责任部门</td>
-          <td class="val-sm" colspan="5">${checkboxes}&nbsp;&nbsp;▢其他：</td>
+          <td class="val-sm" colspan="5"><div class="depts">${checkboxes}</div></td>
         </tr>
         <tr class="r3">
           <td class="block" colspan="6">
@@ -1011,7 +1012,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-10-10b';
+const BUILD = '2026-10-10c';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;

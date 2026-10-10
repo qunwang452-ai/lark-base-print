@@ -129,6 +129,11 @@ td.label {
 /* 内容格：12pt */
 td.val { font-size: 12pt; vertical-align: middle; }
 td.val-sm { font-size: 10.5pt; vertical-align: middle; }
+/* 工程名称超一行时两行均分，免得只剩「项目」两个字掉到第二行（10-10 王群） */
+td.proj { text-wrap: balance; }
+/* 责任部门两行四列对齐，每项不拆行 */
+.depts { display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; }
+.depts span { white-space: nowrap; }
 
 /* 大段落格：内容靠上 */
 td.block { vertical-align: top; }
