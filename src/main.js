@@ -357,7 +357,7 @@ function renderPenalty(d) {
         </colgroup>
         <tr class="k0">
           <td class="label">项目名称</td>
-          <td class="val">${esc(d.project || DEFAULT_PROJECT)}</td>
+          <td class="val proj">${esc(d.project || DEFAULT_PROJECT)}</td>
           <td class="label">合同编号</td>
           <td class="val"></td>
         </tr>
@@ -1012,7 +1012,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-10-10c';
+const BUILD = '2026-10-10d';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
