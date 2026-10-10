@@ -345,7 +345,11 @@ td.ph-empty { height: 62mm; }
 /* ---------- 打印 ---------- */
 @page {
   size: A4;
-  margin: 25mm 25.55mm;
+  /* 🔴 上边距 20mm ＋ 打印时 .page 顶部补 5mm ＝ 原 25mm，版面位置和分页容量不变。
+     为什么拆开：二维码靠 top:-18mm 伸到标题右侧，**伸进 @page 边距的部分打印时会被裁掉**
+     （10-10 实测：码顶被切成约 22×18.5mm 的扁条，PDF 里图片外框却仍是 22×22，量外框查不出）。
+     边距收进 5mm，码就落在可打印区内。 */
+  margin: 20mm 25.55mm 25mm;
 }
 
 @media print {
@@ -355,7 +359,7 @@ td.ph-empty { height: 62mm; }
     width: auto;
     min-height: 0;
     margin: 0;
-    padding: 0;
+    padding: 5mm 0 0;           /* 与 @page 上边距 20mm 合起来 25mm，见 @page 注释 */
     box-shadow: none;
   }
   /* 单据表格不允许被拆到两页；附件表照片多时按行断，一行图不许劈开 */
