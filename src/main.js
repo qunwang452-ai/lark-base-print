@@ -852,7 +852,11 @@ function buildEvent(d) {
   if (d.place) who += `在${d.place}`;
   const sep = who === '贵单位' ? '' : '，';
 
-  const when = d.checkDate ? `${d.checkDate}现场检查发现，` : '现场检查发现，';
+  /* 现场位置为空 = 非现场类违约（如未按时参加周安全例会），10-16 王群：「直接时间加个贵单位就行」，
+     不写「现场检查发现」；填了现场位置的照旧。 */
+  const when = d.place
+    ? (d.checkDate ? `${d.checkDate}现场检查发现，` : '现场检查发现，')
+    : (d.checkDate ? `${d.checkDate}，` : '');
   return `${when}${who}${sep}${fact}。${EVENT_TAIL}`;
 }
 
@@ -1012,7 +1016,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-10-10d';
+const BUILD = '2026-10-16a';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
