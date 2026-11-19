@@ -73,12 +73,18 @@ async function makeQr(text) {
   }
 }
 
-/* 合并开单时用的通用码，全局只生成一次 */
-let genericQr = '';
+/* 合并开单时用的通用码，按表单地址缓存
+   🔴 通用码地址从台账公式里的回执链接截取（去掉 ? 后的预填参数），常量只作兜底——
+   同一个插件同时装在个人库和公司库里（11-19 迁公司库），写死常量会让公司库的单子指回个人库。 */
+const genericQrCache = {};
+let genericQr = '';   // mergeRecords 直接读它，由 attachQr 按当前所选记录刷新
 
 /* 给每条记录挂上二维码，并备好通用码。renderAll 之前必须调用。 */
 async function attachQr(list) {
-  if (!genericQr) genericQr = await makeQr(RECEIPT_FORM_URL);
+  const any = list.map((d) => d.receipt).find(Boolean);
+  const formUrl = any ? any.split('?')[0] : RECEIPT_FORM_URL;
+  if (!genericQrCache[formUrl]) genericQrCache[formUrl] = await makeQr(formUrl);
+  genericQr = genericQrCache[formUrl];
   for (const d of list) {
     /* 🔴 链接算不出来时回落到通用码，而不是不印码 —— 单子发出去了才发现
        没法回传就太晚了。回落时同样标 qrGeneric，让「须自行填隐患编号」那行出来，
@@ -1016,7 +1022,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-10-16a';
+const BUILD = '2026-11-19a';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
