@@ -4,16 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>安全隐患通知(整改)单 · 打印</title>
-  <script type="module" crossorigin src="/lark-base-print/assets/index-BBDtE72R.js"></script>
+  <script type="module" crossorigin src="/lark-base-print/assets/index-C75WhlCX.js"></script>
   <link rel="stylesheet" crossorigin href="/lark-base-print/assets/index-BC4AgUKp.css">
 </head>
 <body>
   <div class="toolbar no-print">
+    <!-- 🔴 打印和下载 Word 都会自动发号（没编号才发，一张单一个号）；只看预览不写 Base -->
     <button id="btn-print">打印整改单</button>
+    <button id="btn-word">整改单 Word</button>
     <button id="btn-print-kh">打印考核单</button>
+    <button id="btn-word-kh">考核单 Word</button>
     <button id="btn-reload">重新读取</button>
-    <!-- 🔴 唯一会写 Base 的按钮：点了才写编号，打印本身绝不写数据 -->
-    <button id="btn-no" hidden>生成整改单编号</button>
     <span id="status">初始化中…</span>
     <!-- 浏览器自己加的页眉页脚（日期/网址/页码）CSS 关不掉，只能在打印对话框里取消 -->
     <span class="print-tip">打印前先在「更多设置」里取消勾选「页眉和页脚」，否则纸上会带网址和日期</span>
