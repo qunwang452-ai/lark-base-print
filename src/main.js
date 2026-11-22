@@ -1038,7 +1038,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-11-22a';
+const BUILD = '2026-11-22b';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
