@@ -154,9 +154,6 @@ const PENALTY = {
   source: '《职业健康安全、环境管理协议书》附表2',
 };
 
-/* 「要求完成整改时间」常空（18 条里只有 3 条填了），
-   而「建议整改期限」是按细则自动算的（I级次日 / II级7天），16 条有值 —— 空了就用它兜底。 */
-const PERIOD_FALLBACK = '建议整改期限';
 
 /* 工程名称字段为空时的兜底。留空即打印空白栏，由填表人手写。
    如需固定某个工程名，在这里填。 */
@@ -659,8 +656,7 @@ async function readOne(table, byName, recordId) {
     hazard: await text(FIELDS.hazard),
     require: await text(FIELDS.require),
     owner: await text(FIELDS.owner),
-    /* 要求完成整改时间常空，回落到按细则自动算的建议整改期限 */
-    period: (await text(FIELDS.period)) || (await text(PERIOD_FALLBACK)),
+    period: await text(FIELDS.period),
     clause: await readClause(table, byName, recordId),
     photos: await urls(FIELDS.photos),
     /* 考核单专用：合同违约条款 ＋ 实际扣款额 ＋ 违章人员 */
@@ -1038,7 +1034,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-11-22b';
+const BUILD = '2026-11-22c';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
