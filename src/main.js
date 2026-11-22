@@ -167,7 +167,7 @@ const DEPTS = ['工程部', '技术质量部', '安监部', '经营部', '物资
 const host = document.getElementById('sheet-host');
 const statusEl = document.getElementById('status');
 
-/* 上次读到的表与选中记录，「生成整改单编号」按钮要用。
+/* 上次读到的表与选中记录，打印／下载 Word 发号要用。
    🔴 必须在 load() 之前声明 —— let 有暂时性死区，声明写在文件末尾的话
    load() 里赋值会抛 ReferenceError，而且是运行时才炸，构建查不出来。 */
 let ctx = null;
@@ -338,6 +338,21 @@ const CONTENT_LIMIT = 250;
    栏位照原件：项目名称/合同编号 → 供应商名称 → 违约事件及合同违约条款 →
    扣除违约金结果 → 项目经理审核意见 → 上传平台扣款情况 → 注。
    列宽 150.3→158.9 等比放大：24.4/80.1/27.3/18.5 → 25.8/84.7/28.9/19.5 */
+/* 合同违约条款那一行、扣除违约金结果那段 —— 打印版与 Word 共用，改措辞只改这里 */
+function penaltyRefText(d) {
+  const p = d.penalty;
+  if (!p) return '';
+  return `${p.item}\n——${PENALTY.source}${p.no ? ` 第 ${p.no} 条` : ''}${p.money ? `　违约金 ${p.money}` : ''}`;
+}
+
+function penaltyResultText(d) {
+  if (!d.amount) return '';
+  return `基于上述事实及合同约定，经项目部研究决定，对贵单位作出如下处理：
+处以违约金人民币 ${d.amount} 元（大写：${rmbUpper(d.amount)}）${
+  d.people ? `，涉事人员：${d.people}` : ''}。该款项将从贵单位当月工程进度款中直接扣除。
+如贵单位再次发生同类事件，项目部将依据合同加倍处罚，并同步追究贵单位现场管理人员的连带管理责任。`;
+}
+
 function renderPenalty(d) {
   const p = d.penalty;
   const twoRefs = `
@@ -347,8 +362,7 @@ function renderPenalty(d) {
       </div>` : ''}
     ${p ? `<div class="ref-block">
         <div class="ref-head">二、合同违约条款</div>
-        <div class="ref-body">${esc(p.item)}
-——${PENALTY.source}${p.no ? ` 第 ${esc(p.no)} 条` : ''}${p.money ? `　违约金 ${esc(p.money)}` : ''}</div>
+        <div class="ref-body">${esc(penaltyRefText(d))}</div>
       </div>` : ''}`;
 
   const page1 = `
@@ -385,10 +399,7 @@ function renderPenalty(d) {
         <tr class="k3">
           <td class="block" colspan="4">
             <span class="block-head">扣除违约金结果：</span>
-            <span class="block-body">${d.amount ? `基于上述事实及合同约定，经项目部研究决定，对贵单位作出如下处理：
-处以违约金人民币 ${esc(d.amount)} 元（大写：${esc(rmbUpper(d.amount))}）${
-  d.people ? `，涉事人员：${esc(d.people)}` : ''}。该款项将从贵单位当月工程进度款中直接扣除。
-如贵单位再次发生同类事件，项目部将依据合同加倍处罚，并同步追究贵单位现场管理人员的连带管理责任。` : ''}</span>
+            <span class="block-body">${esc(penaltyResultText(d))}</span>
           </td>
         </tr>
         <tr class="k4">
@@ -491,18 +502,6 @@ function renderAll(list) {
   host.innerHTML = docType === 'kh' ? renderPenalty(d) : renderOne(d);
 }
 
-/* 「生成编号」按钮的文案与显隐：跟着当前单据类型走 */
-function refreshNoButton() {
-  const cfg = ORDER[docType];
-  const key = docType === 'kh' ? 'noKh' : 'no';
-  const lack = lastList.filter((d) => !d[key]).length;
-  const btn = document.getElementById('btn-no');
-  btn.hidden = lack === 0;
-  btn.textContent = lack > 1
-    ? `生成${cfg.label}编号（${lack} 条）`
-    : `生成${cfg.label}编号`;
-}
-
 /* 开考核单的硬性前提（09-07 王群定）：
    ① 必须选了「违章条目」——没有合同违约条款就没有扣款依据，单子站不住
    ② 必须填了「考核金额」——对照表给的是标准（2000/人·次），实际扣多少要人定
@@ -600,9 +599,8 @@ async function load() {
   lastList = list;
   renderAll(list);
 
-  /* 记住这次的上下文，「生成整改单编号」按钮要用 */
+  /* 记住这次的上下文，打印／下载 Word 发号要用 */
   ctx = { table, byName, ids: picked.ids };
-  refreshNoButton();
 
   const uniq = (k) => [...new Set(list.map((d) => d[k]).filter(Boolean))];
   const clash = ['unit', 'owner', 'period']
@@ -616,7 +614,7 @@ async function load() {
   const head = list.length > 1
     ? `已合并 ${list.length} 条隐患到一张单　·　${picked.from}`
       + (clash.length ? `；${clash.join('、')}各条不一致，已取第 1 条` : '')
-    : `已生成：${list[0].no || '(无编号)'}　·　${picked.from}`;
+    : `${list[0].no || '未发号（打印或下载 Word 时自动发号）'}　·　${picked.from}`;
   const warn = over
     ? `${head}；🔴 隐患栏共 ${chars} 字，超过一页可容的 ${CONTENT_LIMIT} 字，`
       + `打印会多出一张空白页 —— 建议拆成多张单`
@@ -801,34 +799,41 @@ async function nextOrderNo(table, byName, projCode, kind = 'zg') {
   return prefix + String(max + 1).padStart(ORDER.width, '0');
 }
 
-/* 给当前选中的记录生成并写回编号。已有编号的跳过（幂等）。 */
-async function assignOrderNos(table, byName, recordIds, kind = 'zg') {
+/* 给「这一张单」发一个号，写回参与合并的每条记录。
+   🔴 11-22 改（王群：项目自己编号会重号，要系统统一发号）：
+   原来逐条各发一个号，合并开单时单子上只印第 1 个，其余号白占、编号跳号。
+   规则：选中记录里已有本类编号 → 沿用第一个（重复打印、重复导出编号不变）；
+   都没有 → 按第 1 条的项目新发一个。没编号的那几条补写同一个号。 */
+async function ensureOrderNo(table, byName, recordIds, kind = 'zg') {
   const cfg = ORDER[kind];
   const noMeta = byName.get(cfg.field);
   if (!noMeta) throw new Error(`表里没有「${cfg.field}」字段`);
-  const done = [];
-  for (const rid of recordIds) {
-    const cur = (await table.getCellString(noMeta.id, rid) || '').trim();
-    if (cur) { done.push({ rid, no: cur, skipped: true }); continue; }
-    const code = await readProjectCode(table, byName, rid);
+  const cur = [];
+  for (const rid of recordIds) cur.push(((await table.getCellString(noMeta.id, rid)) || '').trim());
+
+  let no = cur.find(Boolean);
+  const made = !no;
+  if (!no) {
+    const code = await readProjectCode(table, byName, recordIds[0]);
     if (!code) {
       /* 🔴 带上实际读到的结构 —— 09-07 就是因为报错信息里没有它，
          我把 SDK 的 link 结构猜错了还查了半天 */
       let raw = '(读不到)';
       try {
         const m = byName.get(FIELDS.project);
-        raw = JSON.stringify(await table.getCellValue(m.id, rid)).slice(0, 200);
+        raw = JSON.stringify(await table.getCellValue(m.id, recordIds[0])).slice(0, 200);
       } catch (e) { raw = `读取异常 ${e?.message || e}`; }
       throw new Error(
         `取不到项目编号。「所在项目」原始值 = ${raw}；`
         + `请确认该记录已选所在项目，且项目信息表里有「${ORDER.projCode}」字段`
       );
     }
-    const no = await nextOrderNo(table, byName, code, kind);
-    await table.setCellValue(noMeta.id, rid, no);
-    done.push({ rid, no, skipped: false });
+    no = await nextOrderNo(table, byName, code, kind);
   }
-  return done;
+  for (let i = 0; i < recordIds.length; i++) {
+    if (!cur[i]) await table.setCellValue(noMeta.id, recordIds[i], no);
+  }
+  return { no, made };
 }
 
 /* 违约事件叙述 —— 🔴 不是直接甩隐患描述，要按「时间＋地点＋人物＋违章」组合
@@ -957,49 +962,60 @@ function fmtClause(content, no) {
   return tail ? `${content}\n${tail}` : content;
 }
 
-document.getElementById('btn-print').onclick = () => {
-  docType = 'zg';
-  renderAll(lastList);
-  refreshNoButton();
-  window.print();
-};
+/* 发号并重读。🔴 这是插件唯一写 Base 的地方：点「打印」或「下载 Word」才写，
+   只是打开插件看预览不写 —— 免得翻看一下就把号占掉。
+   离线样例（ctx 为空）不发号。 */
+async function issue(kind) {
+  if (!ctx) return null;
+  setStatus('发号中…');
+  const r = await ensureOrderNo(ctx.table, ctx.byName, ctx.ids, kind);
+  await load();
+  return r;
+}
 
-document.getElementById('btn-print-kh').onclick = () => {
+function blocked(kind) {
+  if (kind !== 'kh') return false;
   const miss = penaltyBlockers(lastList);
-  if (miss.length) {
-    setStatus(`开考核单前必须先补齐：${miss.join('、')} —— 请在台账里填好再来`, true);
-    return;
-  }
-  docType = 'kh';
-  renderAll(lastList);
-  refreshNoButton();
-  window.print();
-};
-document.getElementById('btn-reload').onclick = () => load().catch(onErr);
+  if (!miss.length) return false;
+  setStatus(`开考核单前必须先补齐：${miss.join('、')} —— 请在台账里填好再来`, true);
+  return true;
+}
 
-/* 🔴 全插件唯一一处写 Base 的地方，且只在用户点这个按钮时执行。
-   打印不写数据 —— 免得预览一下就把编号占掉。 */
-document.getElementById('btn-no').onclick = async () => {
-  if (!ctx) return;
-  const btn = document.getElementById('btn-no');
-  btn.disabled = true;
-  setStatus('生成编号中…');
-  try {
-    const done = await assignOrderNos(ctx.table, ctx.byName, ctx.ids, docType);
-    const made = done.filter((d) => !d.skipped).map((d) => d.no);
-    const kept = done.filter((d) => d.skipped).length;
-    setStatus(
-      (made.length ? `已生成：${made.join('、')}` : '没有需要生成的')
-      + (kept ? `；${kept} 条本来就有编号，未改动` : '')
-      + '　·　正在刷新…'
-    );
-    await load();
-  } catch (e) {
-    onErr(e);
-  } finally {
-    btn.disabled = false;
-  }
-};
+async function doPrint(kind) {
+  if (blocked(kind)) return;
+  docType = kind;
+  const r = await issue(kind);
+  renderAll(lastList);
+  if (r?.made) setStatus(`已发号 ${r.no}，正在打开打印…`);
+  window.print();
+}
+
+async function doWord(kind) {
+  if (blocked(kind)) return;
+  docType = kind;
+  const r = await issue(kind);
+  renderAll(lastList);
+  const d = mergeRecords(lastList);
+  setStatus('生成 Word 中…（照片多时要几秒）');
+  /* docx 库 700KB，按需加载，不拖慢插件打开 */
+  const { buildDocx, download } = await import('./word.js');
+  const { blob, fail } = await buildDocx(kind, d, {
+    event: buildEvent(d), result: penaltyResultText(d), ref: penaltyRefText(d),
+  });
+  const no = kind === 'kh' ? d.noKh : d.no;
+  const unit = ((d.unit || '').match(/[（(]([^）)]+)[）)]\s*$/) || [])[1] || '';
+  download(blob, `${kind === 'kh' ? '考核单' : '整改单'}${no ? `_${no}` : ''}${unit ? `_${unit}` : ''}.docx`);
+  /* 🔴 iframe 拦下载时 JS 侧没有任何报错，只能请人确认 */
+  setStatus(`${r?.made ? `已发号 ${r.no}；` : ''}Word 已生成——浏览器没弹出下载，说明插件框禁止下载，请告诉开发者`
+    + (fail ? `；🔴 ${fail} 张照片未能载入，Word 里留了位置请手动插入` : ''), fail > 0);
+}
+
+const guard = (fn) => () => fn().catch(onErr);
+document.getElementById('btn-print').onclick = guard(() => doPrint('zg'));
+document.getElementById('btn-print-kh').onclick = guard(() => doPrint('kh'));
+document.getElementById('btn-word').onclick = guard(() => doWord('zg'));
+document.getElementById('btn-word-kh').onclick = guard(() => doWord('kh'));
+document.getElementById('btn-reload').onclick = () => load().catch(onErr);
 
 function onErr(e) {
   console.error(e);
@@ -1022,7 +1038,7 @@ function dbg() {
   ].join(' ｜ ');
 }
 
-const BUILD = '2026-11-19a';
+const BUILD = '2026-11-22a';
 
 /* 版本号常驻工具条 —— 排查「线上到底更新没有」时第一眼就能看到 */
 document.getElementById('build-tag').textContent = `build ${BUILD}`;
